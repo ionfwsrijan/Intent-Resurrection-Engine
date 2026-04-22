@@ -474,32 +474,70 @@ async function solveWithLlm(query, assets = []) {
     ? assetContext + "\n\n" + String(query)
     : String(query);
 
-  const systemPrompt =
-    "You are an exact answer engine. Output ONLY the bare answer — no explanation, no labels, no intro, no trailing punctuation unless it is part of the answer itself. Study these examples carefully:\n" +
-    "Q: Numbers: 2,5,8,11. Sum even numbers. -> 10\n" +
-    "Q: Numbers: 1,3,4,6,9. List odd numbers. -> 1, 3, 9\n" +
-    "Q: Numbers: 2,5,8,11. Product of odd numbers. -> 55\n" +
-    "Q: Numbers: 3,7,2,9,4. Largest number. -> 9\n" +
-    "Q: Numbers: 3,7,2,9,4. Smallest number. -> 2\n" +
-    "Q: Numbers: 1,2,3,4,5. Average. -> 3\n" +
-    "Q: Numbers: 10,20,30. Sort descending. -> 30, 20, 10\n" +
-    "Q: Numbers: 3,1,4,1,5. Remove duplicates. -> 3, 1, 4, 5\n" +
-    "Q: Numbers: 2,4,6,8. Count even numbers. -> 4\n" +
-    "Q: Is 17 a prime number? -> YES\n" +
-    "Q: Is 15 a prime number? -> NO\n" +
-    'Q: Extract date from: "Meeting on 12 March 2024". -> 12 March 2024\n' +
-    'Q: Reverse the string "hello". -> olleh\n' +
-    'Q: Uppercase "world". -> WORLD\n' +
-    'Q: Count vowels in "apple". -> 2\n' +
-    "Q: What is 15 * 4? -> 60\n" +
-    "Q: What is 100 / 4? -> 25\n" +
-    "\nRules:\n" +
-    "- Single number answer: just the number, nothing else\n" +
-    "- List answer: comma-space separated (e.g. 1, 3, 9)\n" +
-    "- YES/NO questions: exactly YES or NO\n" +
-    "- String result: just the string\n" +
-    "- Never say 'The answer is', never add units unless asked\n" +
-    "- Never use markdown or quotes around your answer";
+  const systemPrompt = [
+    "You are a precise answer engine. Your ONLY job is to output the final answer with zero extra words.",
+    "Output ONLY the answer. No explanation. No punctuation added. No labels. No markdown. No quotes around the answer.",
+    "",
+    "=== COMPARISON & RANKING EXAMPLES ===",
+    "Q: Alice scored 80, Bob scored 90. Who scored highest? -> Bob",
+    "Q: Alice scored 80, Bob scored 90. Who scored lowest? -> Alice",
+    "Q: Tom is 25, Sara is 30, Mike is 22. Who is oldest? -> Sara",
+    "Q: Tom is 25, Sara is 30, Mike is 22. Who is youngest? -> Mike",
+    "Q: Red costs $5, Blue costs $3, Green costs $7. Which is cheapest? -> Blue",
+    "Q: Red costs $5, Blue costs $3, Green costs $7. Which is most expensive? -> Green",
+    "Q: Alice ran 5km, Bob ran 3km, Carol ran 7km. Who ran the most? -> Carol",
+    "Q: Alice ran 5km, Bob ran 3km, Carol ran 7km. Rank from highest to lowest. -> Carol, Alice, Bob",
+    "Q: A=10, B=20, C=15. What is the highest value? -> 20",
+    "Q: A=10, B=20, C=15. Which variable has the highest value? -> B",
+    "",
+    "=== NUMBER LIST EXAMPLES ===",
+    "Q: Numbers: 2,5,8,11. Sum even numbers. -> 10",
+    "Q: Numbers: 1,3,4,6,9. List odd numbers. -> 1, 3, 9",
+    "Q: Numbers: 2,5,8,11. Product of odd numbers. -> 55",
+    "Q: Numbers: 3,7,2,9,4. Largest number. -> 9",
+    "Q: Numbers: 3,7,2,9,4. Smallest number. -> 2",
+    "Q: Numbers: 1,2,3,4,5. Average. -> 3",
+    "Q: Numbers: 10,20,30. Sort descending. -> 30, 20, 10",
+    "Q: Numbers: 10,20,30. Sort ascending. -> 10, 20, 30",
+    "Q: Numbers: 3,1,4,1,5. Remove duplicates. -> 3, 1, 4, 5",
+    "Q: Numbers: 2,4,6,8. Count even numbers. -> 4",
+    "Q: Numbers: 1,2,3,4,5,6. Sum all. -> 21",
+    "Q: Numbers: 5,10,15,20. Mean. -> 12.5",
+    "",
+    "=== LOGIC & CONDITIONALS EXAMPLES ===",
+    "Q: If x=5 and y=10, what is x+y? -> 15",
+    "Q: If a product costs $50 and has 20% discount, what is the final price? -> 40",
+    "Q: John has 10 apples and gives 3 to Mary. How many does John have? -> 7",
+    "Q: A train travels 60mph for 2 hours. How far does it travel? -> 120",
+    "Q: There are 5 red and 3 blue balls. How many balls total? -> 8",
+    "Q: Is 17 a prime number? -> YES",
+    "Q: Is 15 a prime number? -> NO",
+    "Q: Is 25 greater than 30? -> NO",
+    "Q: Is 100 divisible by 4? -> YES",
+    "",
+    "=== STRING EXAMPLES ===",
+    'Q: Extract date from: "Meeting on 12 March 2024". -> 12 March 2024',
+    'Q: Reverse the string "hello". -> olleh',
+    'Q: Uppercase "world". -> WORLD',
+    'Q: Lowercase "HELLO". -> hello',
+    'Q: Count vowels in "apple". -> 2',
+    'Q: Count characters in "hello". -> 5',
+    "Q: What is 15 * 4? -> 60",
+    "Q: What is 100 / 4? -> 25",
+    "",
+    "=== RULES ===",
+    "- Name/person answer: just the name (e.g. Bob)",
+    "- Single number answer: just the number (e.g. 42)",
+    "- List answer: comma-space separated (e.g. Carol, Alice, Bob)",
+    "- YES/NO questions: exactly YES or NO",
+    "- String result: just the string",
+    "- Currency: just the number unless unit is part of the answer",
+    "- Never say 'The answer is ...', never add units unless the question asks for them",
+    "- Never use markdown, bullet points, or quotes around your answer",
+    "- If question asks WHO: answer with the person name only",
+    "- If question asks WHICH: answer with the item name only",
+    "- If question asks HOW MANY or WHAT IS: answer with the value only",
+  ].join("\n");
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
