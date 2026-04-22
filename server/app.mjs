@@ -1444,10 +1444,32 @@ async function fetchAlertTextFromPage(url) {
     function extractAlerts(src) {
       const results = [];
       // Match alert('...') alert("...") — single or double quoted
-      const re = /alert\s*\(\s*(?:'([^']*)'|"([^"]*)")\s*\)/g;
+      const re = /alert\s*\(\s*(?:'([^']*)'|"([^"]*)")\s*\)/g;
       let m;
       while ((m = re.exec(src)) !== null) {
         results.push(m[1] !== undefined ? m[1] : m[2]);
+      }
+      return results;
+    }
+
+    // Extract alerts near click/submit handlers (catches dynamically triggered alerts)
+    function extractAlertsNearHandlers(src) {
+      const results = [];
+      let m;
+      const contexts = [];
+      // onclick="..." / onsubmit="..." attributes
+      const onclickRe = /on(?:click|submit)\s*=\s*["']([^"']{0,500})["']/gi;
+      while ((m = onclickRe.exec(src)) !== null) contexts.push(m[1]);
+      // .click(function(){...}) or .on('click', function(){...}) blocks
+      const clickHandlerRe =
+        /\.(?:on\s*\(\s*['"](?:click|submit)['"].*?|click\s*\(|submit\s*\()\s*function[^{]*\{([^}]{0,600})/g;
+      while ((m = clickHandlerRe.exec(src)) !== null) contexts.push(m[1]);
+      // Arrow handlers: .click(() => { ... })
+      const arrowRe =
+        /\.(?:click|submit)\s*\(\s*\([^)]*\)\s*=>\s*\{([^}]{0,600})/g;
+      while ((m = arrowRe.exec(src)) !== null) contexts.push(m[1]);
+      for (const ctx of contexts) {
+        results.push(...extractAlerts(ctx));
       }
       return results;
     }
@@ -1467,8 +1489,18 @@ async function fetchAlertTextFromPage(url) {
     }
     console.log("[fetchAlert] script URLs:", scriptUrls);
 
-    // Fetch ALL scripts and search for alert calls
+    // Also scan inline <script> blocks (not just external files)
     const allAlerts = [...inlineAlerts];
+    const inlineScriptRe =
+      /<script(?![^>]*\bsrc\b)[^>]*>([\s\S]*?)<\/script>/gi;
+    let ism;
+    while ((ism = inlineScriptRe.exec(html)) !== null) {
+      const jsBlock = ism[1];
+      allAlerts.push(...extractAlerts(jsBlock));
+      allAlerts.push(...extractAlertsNearHandlers(jsBlock));
+    }
+
+    // Fetch ALL scripts and search for alert calls
     await Promise.all(
       scriptUrls.map(async (src) => {
         try {
@@ -1482,6 +1514,11 @@ async function fetchAlertTextFromPage(url) {
             console.log("[fetchAlert] found in", src, ":", alerts);
             allAlerts.push(...alerts);
           }
+          const nearClick = extractAlertsNearHandlers(js);
+          if (nearClick.length > 0) {
+            console.log("[fetchAlert] handler alerts in", src, ":", nearClick);
+            allAlerts.push(...nearClick);
+          }
         } catch (e) {
           console.log("[fetchAlert] script fetch failed:", src, e.message);
         }
@@ -1489,16 +1526,86 @@ async function fetchAlertTextFromPage(url) {
     );
 
     console.log("[fetchAlert] all alerts found:", allAlerts);
-    // Return last non-empty alert (skip common ones like cookie/tracking)
-    const meaningful = allAlerts.filter((a) => a.trim().length > 0);
+    // Filter out cookie/tracking noise
+    const skipWords = new Set([
+      "cookie",
+      "cookies",
+      "consent",
+      "accept",
+      "close",
+      "ok",
+      "cancel",
+      "error",
+      "warning",
+      "notice",
+      "",
+    ]);
+    const meaningful = allAlerts.filter((a) => {
+      const t = a.trim().toLowerCase();
+      return t.length > 0 && !skipWords.has(t);
+    });
     if (meaningful.length > 0) return meaningful[meaningful.length - 1].trim();
+
+    // FORM POST FALLBACK: simulate submitting the page's form
+    try {
+      const formMatch = html.match(
+        /<form[^>]*action=["']?([^"'\s>]*)["']?[^>]*>/i,
+      );
+      const methodMatch = html.match(/<form[^>]*method=["']?([^"'\s>]*)["']?/i);
+      const method = (methodMatch?.[1] || "get").toUpperCase();
+      const formData = new URLSearchParams();
+      const hiddenRe =
+        /<input[^>]*type=["']hidden["'][^>]*name=["']([^"']*)["'][^>]*value=["']([^"']*)["']/gi;
+      let hm;
+      while ((hm = hiddenRe.exec(html)) !== null) formData.append(hm[1], hm[2]);
+      const sbm = html.match(
+        /<(?:button|input)[^>]*type=["']submit["'][^>]*(?:name=["']([^"']*)["'][^>]*value=["']([^"']*)["']|value=["']([^"']*)["'][^>]*name=["']([^"']*)["'])/i,
+      );
+      if (sbm)
+        formData.append(
+          sbm[1] || sbm[4] || "submit",
+          sbm[2] || sbm[3] || "Submit",
+        );
+
+      const actionUrl = formMatch?.[1]
+        ? formMatch[1].startsWith("http")
+          ? formMatch[1]
+          : new URL(formMatch[1] || "", url).href
+        : url;
+
+      console.log("[fetchAlert] trying form POST to:", actionUrl);
+      const postRes = await fetch(actionUrl, {
+        method: method === "POST" ? "POST" : "GET",
+        headers: {
+          ...headers,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: method === "POST" ? formData.toString() : undefined,
+        signal: AbortSignal.timeout(10000),
+      });
+      const postHtml = await postRes.text();
+      const postAlerts = extractAlerts(postHtml);
+      if (postAlerts.length > 0) {
+        console.log("[fetchAlert] form POST alerts:", postAlerts);
+        return postAlerts[postAlerts.length - 1].trim();
+      }
+      const msgRe =
+        /<(?:div|p|span|h\d)[^>]*(?:class|id)=["'][^"']*(?:success|confirm|result|message|alert)[^"']*["'][^>]*>\s*([^<]{2,200})/i;
+      const msgMatch = postHtml.match(msgRe);
+      if (msgMatch) {
+        console.log("[fetchAlert] form POST message:", msgMatch[1].trim());
+        return msgMatch[1].trim();
+      }
+    } catch (fe) {
+      console.log("[fetchAlert] form POST fallback failed:", fe.message);
+    }
+
     return "";
   } catch (e) {
     console.error("[fetchAlert] error:", e.message);
     return "";
   }
 }
-
 async function solveWebAutomation(query, assets = []) {
   const text = normalizeSpaces(query);
   const hasWebAssets = assets.some((a) => /^https?:\/\//i.test(String(a)));
