@@ -408,6 +408,38 @@ function solvePolynomialGcd(query) {
   return String(common);
 }
 
+function solveLatinSquares(query) {
+  const text = normalizeSpaces(query);
+  if (!/latin\s*square/i.test(text)) return "";
+
+  // OEIS A002860 — number of distinct Latin squares of order n
+  const LATIN_SQUARES = {
+    1: "1",
+    2: "2",
+    3: "12",
+    4: "576",
+    5: "161280",
+    6: "812851200",
+    7: "61479419904000",
+    8: "108776032459082956800",
+    9: "5524751496156892842531225600",
+    10: "9982437658213039871725064756920320000",
+    11: "776966836171770144107444346734230682311065600000",
+  };
+
+  // Extract order: "4x4", "4×4", "order 4", "4 by 4", "n=4"
+  const orderMatch =
+    text.match(/(\d+)\s*[x×]\s*\d+/i) ||
+    text.match(/order\s+(\d+)/i) ||
+    text.match(/(\d+)\s+by\s+\d+/i) ||
+    text.match(/n\s*=\s*(\d+)/i) ||
+    text.match(/\b(\d+)\s*-\s*by\s*-\s*\d+/i);
+
+  if (!orderMatch) return "";
+  const n = Number(orderMatch[1]);
+  return LATIN_SQUARES[n] || "";
+}
+
 function solveMatrixTrace(query) {
   const text = normalizeSpaces(query);
   if (!/trace\s*\(/i.test(text)) return "";
@@ -689,7 +721,11 @@ function solveDefiniteIntegral(query) {
 }
 
 function solveLocal(query) {
-  // Try matrix trace first
+  // Try Latin squares lookup first
+  const latinResult = solveLatinSquares(query);
+  if (latinResult !== "") return latinResult;
+
+  // Try matrix trace
   const matResult = solveMatrixTrace(query);
   if (matResult !== "") return matResult;
 
@@ -951,6 +987,18 @@ async function solveWithLlm(query, assets = []) {
     "Q: p(t)=(t-1)(t-2)(t-4)(t-6), q(t)=(t-2)(t-4)(t-5)(t-6). Compute degree of gcd(p,q) over Q.",
     "Reasoning: roots of p: {1,2,4,6}. roots of q: {2,4,5,6}. Common: {2,4,6} → degree 3.",
     "answer: 3",
+    "",
+    "--- LATIN SQUARES ---",
+    "A Latin square of order n: n×n array, each of n symbols appears exactly once per row and per column. Counts are fixed known values (OEIS A002860).",
+    "n=1: 1, n=2: 2, n=3: 12, n=4: 576, n=5: 161280, n=6: 812851200, n=7: 61479419904000, n=8: 108776032459082956800",
+    "Q: How many distinct 4×4 Latin squares are there?",
+    "answer: 576",
+    "",
+    "Q: How many distinct 3×3 Latin squares are there?",
+    "answer: 12",
+    "",
+    "Q: How many distinct 5×5 Latin squares are there?",
+    "answer: 161280",
     "",
     "--- MATRIX TRACE / MATRIX POWERS ---",
     "trace(M) = sum of diagonal elements. trace(M^n) = compute M^n first (by repeated matrix multiplication), then sum diagonal.",
