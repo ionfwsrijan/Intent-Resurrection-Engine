@@ -2189,7 +2189,6 @@ async function solveDomExtraction(query, assets) {
   console.log("[DOM] extractAttr:", extractAttr);
 
   // ── Infobox image/src extraction (Wikipedia-style pages) ──
-  // Goal: reliably pick the "emblem/logo" image inside the infobox (not random icons).
   if (
     /infobox/i.test(text) &&
     (/img|image|src|emblem|logo|flag|photo|olympic|olympics|rings/i.test(
@@ -2243,8 +2242,6 @@ async function solveDomExtraction(query, assets) {
       if ((w && w <= 10) || (h && h <= 10)) return true;
 
       const alt = (getAttrFromTag(tag, "alt") || "").toLowerCase();
-
-      // common UI/icon images in infobox markup
       if (
         alt.includes("edit") ||
         alt.includes("wikidata") ||
@@ -2263,21 +2260,17 @@ async function solveDomExtraction(query, assets) {
 
       let score = 0;
 
-      // Strongly prefer emblem-ish images (Olympics pages mention rings/emblem)
       if (/(olympic|olympics|rings|emblem|logo|flag)/i.test(alt)) score += 60;
       if (/(olympic|olympics|rings|emblem|logo|flag)/i.test(src)) score += 40;
 
-      // Prefer Wikimedia thumbs (expected format)
       if (/upload\.wikimedia\.org\/wikipedia\/commons\/thumb\//i.test(src))
         score += 25;
 
-      // Prefer larger images
       const w = Number(getAttrFromTag(tag, "width") || "");
       const h = Number(getAttrFromTag(tag, "height") || "");
       if (w) score += Math.min(25, Math.floor(w / 10));
       if (h) score += Math.min(25, Math.floor(h / 10));
 
-      // Penalize non-commons images lightly
       if (!/upload\.wikimedia\.org/i.test(src)) score -= 5;
 
       return score;
@@ -2290,7 +2283,6 @@ async function solveDomExtraction(query, assets) {
 
     if (candidates.length === 0) return "";
 
-    // Return best candidate's chosen URL
     const bestUrl = candidates[0].url;
     if (bestUrl && !bestUrl.startsWith("data:")) return bestUrl;
 
@@ -2367,6 +2359,7 @@ async function solveDomExtraction(query, assets) {
   }
   return getTextContent(el.innerHTML || el.outerHtml);
 }
+
 const text = normalizeSpaces(query);
 
 // Must have a URL asset
