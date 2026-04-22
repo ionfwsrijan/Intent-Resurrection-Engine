@@ -408,6 +408,94 @@ function solvePolynomialGcd(query) {
   return String(common);
 }
 
+function solveLastDigits(query) {
+  const text = normalizeSpaces(query);
+
+  // Detect: "last N digits of B^E", "B^E mod 10^N", "B^E mod 10^N", "compute B^E mod M"
+  if (!/last\s+\d+\s+digit|mod\s+10|\bmod\b.*\d{3,}/i.test(text)) return "";
+
+  // Normalize unicode: superscripts, carets
+  const supMap = {
+    "⁰": "0",
+    "¹": "1",
+    "²": "2",
+    "³": "3",
+    "⁴": "4",
+    "⁵": "5",
+    "⁶": "6",
+    "⁷": "7",
+    "⁸": "8",
+    "⁹": "9",
+  };
+  let t = text.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹]/g, (c) => supMap[c] || c);
+
+  let base = null,
+    exp = null,
+    mod = null;
+
+  // Pattern 1: "last N digits of B^E" → mod = 10^N
+  const lastDigits = t.match(
+    /last\s+(\d+)\s+digits?\s+of\s+(\d+)\s*\^\s*(\d+)/i,
+  );
+  if (lastDigits) {
+    mod = 10n ** BigInt(lastDigits[1]);
+    base = BigInt(lastDigits[2]);
+    exp = BigInt(lastDigits[3]);
+  }
+
+  // Pattern 2: "B^E mod 10^N" or "B^E mod 10**N"
+  if (!base) {
+    const modPow = t.match(
+      /(\d+)\s*\^\s*(\d+)\s+mod\s+10\s*[\^*]{1,2}\s*(\d+)/i,
+    );
+    if (modPow) {
+      base = BigInt(modPow[1]);
+      exp = BigInt(modPow[2]);
+      mod = 10n ** BigInt(modPow[3]);
+    }
+  }
+
+  // Pattern 3: "B^E mod M" where M is a plain number
+  if (!base) {
+    const modPlain = t.match(/(\d+)\s*\^\s*(\d+)\s+mod\s+(\d+)/i);
+    if (modPlain) {
+      base = BigInt(modPlain[1]);
+      exp = BigInt(modPlain[2]);
+      mod = BigInt(modPlain[3]);
+    }
+  }
+
+  // Pattern 4: "compute B^E mod 10^N" with "compute" prefix
+  if (!base) {
+    const computeMod = t.match(
+      /compute\s+(\d+)\s*\^\s*(\d+)\s+mod\s+10\s*[\^*]{1,2}\s*(\d+)/i,
+    );
+    if (computeMod) {
+      base = BigInt(computeMod[1]);
+      exp = BigInt(computeMod[2]);
+      mod = 10n ** BigInt(computeMod[3]);
+    }
+  }
+
+  if (base === null || exp === null || mod === null) return "";
+  if (mod <= 0n || exp < 0n) return "";
+
+  // Fast modular exponentiation using BigInt
+  function modPow(b, e, m) {
+    let result = 1n;
+    b = b % m;
+    while (e > 0n) {
+      if (e & 1n) result = (result * b) % m;
+      b = (b * b) % m;
+      e >>= 1n;
+    }
+    return result;
+  }
+
+  const result = modPow(base, exp, mod);
+  return result.toString();
+}
+
 function solveLatinSquares(query) {
   const text = normalizeSpaces(query);
   if (!/latin\s*square/i.test(text)) return "";
@@ -721,7 +809,11 @@ function solveDefiniteIntegral(query) {
 }
 
 function solveLocal(query) {
-  // Try Latin squares lookup first
+  // Try last-digits / modular exponentiation first
+  const lastDigResult = solveLastDigits(query);
+  if (lastDigResult !== "") return lastDigResult;
+
+  // Try Latin squares lookup
   const latinResult = solveLatinSquares(query);
   if (latinResult !== "") return latinResult;
 
@@ -987,6 +1079,20 @@ async function solveWithLlm(query, assets = []) {
     "Q: p(t)=(t-1)(t-2)(t-4)(t-6), q(t)=(t-2)(t-4)(t-5)(t-6). Compute degree of gcd(p,q) over Q.",
     "Reasoning: roots of p: {1,2,4,6}. roots of q: {2,4,5,6}. Common: {2,4,6} → degree 3.",
     "answer: 3",
+    "",
+    "--- LAST N DIGITS / MODULAR EXPONENTIATION ---",
+    "Use fast modular exponentiation (binary method). last N digits of B^E = B^E mod 10^N.",
+    "Q: What are the last 6 digits of 7^777? (compute 7^777 mod 10^6)",
+    "Reasoning: Use modular exponentiation. 7^777 mod 1000000 = 979207.",
+    "answer: 979207",
+    "",
+    "Q: What are the last 4 digits of 9^999?",
+    "Reasoning: 9^999 mod 10000 = 8889.",
+    "answer: 8889",
+    "",
+    "Q: Compute 3^1000 mod 10^6.",
+    "Reasoning: 3^1000 mod 1000000 = 220001.",
+    "answer: 220001",
     "",
     "--- LATIN SQUARES ---",
     "A Latin square of order n: n×n array, each of n symbols appears exactly once per row and per column. Counts are fixed known values (OEIS A002860).",
