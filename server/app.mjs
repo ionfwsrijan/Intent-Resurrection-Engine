@@ -408,6 +408,94 @@ function solvePolynomialGcd(query) {
   return String(common);
 }
 
+function solveMatrixProduct(query) {
+  const text = normalizeSpaces(query);
+  if (!/product|multiply|multipl/i.test(text) || !/\[\s*\[/.test(text))
+    return "";
+
+  function parseMatrices(s) {
+    // Find all [[...]] blocks
+    const matrices = [];
+    let i = 0;
+    while (i < s.length) {
+      if (s[i] === "[" && i + 1 < s.length && s[i + 1] === "[") {
+        // Find matching closing ]]
+        let depth = 0,
+          j = i;
+        while (j < s.length) {
+          if (s[j] === "[") depth++;
+          else if (s[j] === "]") {
+            depth--;
+            if (depth === 0) {
+              j++;
+              break;
+            }
+          }
+          j++;
+        }
+        const block = s.slice(i, j);
+        // Strip outer brackets to get inner: '[r0], [r1], ...'
+        const inner = block.slice(1, -1);
+        const rows = [];
+        const rowRe = /\[([^\[\]]+)\]/g;
+        let m;
+        while ((m = rowRe.exec(inner)) !== null) {
+          const nums = m[1]
+            .split(/[\s,]+/)
+            .filter(Boolean)
+            .map(Number);
+          if (nums.some(isNaN)) return null;
+          rows.push(nums);
+        }
+        if (rows.length > 0) matrices.push(rows);
+        i = j;
+      } else {
+        i++;
+      }
+    }
+    return matrices;
+  }
+
+  function matMul(A, B) {
+    const rA = A.length,
+      cA = A[0].length,
+      cB = B[0].length;
+    if (cA !== B.length) return null; // dimension mismatch
+    return Array.from({ length: rA }, (_, i) =>
+      Array.from({ length: cB }, (_, j) =>
+        A[i].reduce((sum, _, k) => sum + A[i][k] * B[k][j], 0),
+      ),
+    );
+  }
+
+  function formatMatrix(M) {
+    // Only first column is right-padded to its max width; other columns unpadded
+    const col0W = Math.max(...M.map((r) => String(r[0]).length));
+    const rows = M.map(
+      (row) =>
+        "[" +
+        [
+          String(row[0]).padStart(col0W),
+          ...row.slice(1).map((n) => String(n)),
+        ].join(" ") +
+        "]",
+    );
+    return "[" + rows.join(" ") + "]";
+  }
+
+  const matrices = parseMatrices(text);
+  if (!matrices || matrices.length < 2) return "";
+
+  // Multiply all matrices left to right
+  let result = matrices[0];
+  for (let i = 1; i < matrices.length; i++) {
+    result = matMul(result, matrices[i]);
+    if (!result) return "";
+  }
+
+  return formatMatrix(result);
+}
+
 function solveLastDigits(query) {
   const text = normalizeSpaces(query);
 
@@ -809,7 +897,11 @@ function solveDefiniteIntegral(query) {
 }
 
 function solveLocal(query) {
-  // Try last-digits / modular exponentiation first
+  // Try matrix product first
+  const matProdResult = solveMatrixProduct(query);
+  if (matProdResult !== "") return matProdResult;
+
+  // Try last-digits / modular exponentiation
   const lastDigResult = solveLastDigits(query);
   if (lastDigResult !== "") return lastDigResult;
 
@@ -1079,6 +1171,16 @@ async function solveWithLlm(query, assets = []) {
     "Q: p(t)=(t-1)(t-2)(t-4)(t-6), q(t)=(t-2)(t-4)(t-5)(t-6). Compute degree of gcd(p,q) over Q.",
     "Reasoning: roots of p: {1,2,4,6}. roots of q: {2,4,5,6}. Common: {2,4,6} → degree 3.",
     "answer: 3",
+    "",
+    "--- MATRIX MULTIPLICATION ---",
+    "Multiply matrices left to right. Output format: '[[ r0c0 r0c1 ...] [ r1c0 ...] ...]' where first column is right-padded to its max width, other columns are unpadded.",
+    "Q: Calculate the product: [[1,2,3],[4,5,6],[7,8,9]] [[9,8,7],[6,5,4],[3,2,1]]",
+    "Reasoning: Row0*Col0=1*9+2*6+3*3=30, Row0*Col1=1*8+2*5+3*2=24, Row0*Col2=1*7+2*4+3*1=18. Row1: 84,69,54. Row2: 138,114,90.",
+    "answer: [[ 30 24 18] [ 84 69 54] [138 114 90]]",
+    "",
+    "Q: Calculate the product: [[1,2],[3,4]] [[5,6],[7,8]]",
+    "Reasoning: [[1*5+2*7,1*6+2*8],[3*5+4*7,3*6+4*8]]=[[19,22],[43,50]]",
+    "answer: [[19 22] [43 50]]",
     "",
     "--- LAST N DIGITS / MODULAR EXPONENTIATION ---",
     "Use fast modular exponentiation (binary method). last N digits of B^E = B^E mod 10^N.",
