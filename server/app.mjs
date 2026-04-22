@@ -1429,54 +1429,72 @@ function stripInjection(q) {
 }
 
 async function fetchAlertTextFromPage(url) {
-  // Fetch the page HTML and extract alert() text from inline scripts
+  // Fetch page HTML + ALL linked JS files, extract alert("...") text
   try {
-    const r = await fetch(url, {
-      signal: AbortSignal.timeout(10000),
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; bot/1.0)" },
-    });
+    const headers = {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
+      Accept: "text/html,application/xhtml+xml,*/*",
+    };
+    const r = await fetch(url, { signal: AbortSignal.timeout(12000), headers });
     if (!r.ok) return "";
     const html = await r.text();
-    // Find all alert("...") or alert('...') calls in script tags
-    const alertRe = /\balert\s*\(\s*(['"`])([\s\S]*?)\1\s*\)/g;
-    let am;
-    const found = [];
-    while ((am = alertRe.exec(html)) !== null) {
-      found.push(am[2]);
-    }
-    if (found.length > 0) {
-      console.log("[WebAuto] alert texts from HTML:", found);
-      return found[found.length - 1]; // last alert is usually the result
-    }
-    // Also check for script src tags and try to fetch those
-    const scriptSrcs = [];
-    const scriptRe = /<script[^>]+src=["']([^"']+)["']/g;
-    let sm;
-    while ((sm = scriptRe.exec(html)) !== null) {
-      const src = sm[1];
-      if (
-        src.includes("button") ||
-        src.includes("simple") ||
-        src.includes("element")
-      ) {
-        scriptSrcs.push(src.startsWith("http") ? src : new URL(src, url).href);
+    console.log("[fetchAlert] HTML length:", html.length);
+
+    function extractAlerts(src) {
+      const results = [];
+      // Match alert('...') alert("...") — single or double quoted
+      const re = /alert\s*\(\s*(?:'([^']*)'|"([^"]*)")\s*\)/g;
+      let m;
+      while ((m = re.exec(src)) !== null) {
+        results.push(m[1] !== undefined ? m[1] : m[2]);
       }
+      return results;
     }
-    for (const src of scriptSrcs) {
-      try {
-        const sr = await fetch(src, { signal: AbortSignal.timeout(5000) });
-        const js = await sr.text();
-        const am2 = /\balert\s*\(\s*(['"`])([\s\S]*?)\1\s*\)/g;
-        let m2;
-        while ((m2 = am2.exec(js)) !== null) {
-          found.push(m2[2]);
+
+    // Check inline HTML first
+    const inlineAlerts = extractAlerts(html);
+    console.log("[fetchAlert] inline alerts:", inlineAlerts);
+
+    // Collect ALL script src URLs
+    const scriptUrls = [];
+    const srcRe = /<script[^>]+src=["']([^"']+)["']/gi;
+    let sm;
+    while ((sm = srcRe.exec(html)) !== null) {
+      const src = sm[1];
+      const fullSrc = src.startsWith("http") ? src : new URL(src, url).href;
+      scriptUrls.push(fullSrc);
+    }
+    console.log("[fetchAlert] script URLs:", scriptUrls);
+
+    // Fetch ALL scripts and search for alert calls
+    const allAlerts = [...inlineAlerts];
+    await Promise.all(
+      scriptUrls.map(async (src) => {
+        try {
+          const sr = await fetch(src, {
+            signal: AbortSignal.timeout(8000),
+            headers,
+          });
+          const js = await sr.text();
+          const alerts = extractAlerts(js);
+          if (alerts.length > 0) {
+            console.log("[fetchAlert] found in", src, ":", alerts);
+            allAlerts.push(...alerts);
+          }
+        } catch (e) {
+          console.log("[fetchAlert] script fetch failed:", src, e.message);
         }
-      } catch {}
-    }
-    if (found.length > 0) return found[found.length - 1];
+      }),
+    );
+
+    console.log("[fetchAlert] all alerts found:", allAlerts);
+    // Return last non-empty alert (skip common ones like cookie/tracking)
+    const meaningful = allAlerts.filter((a) => a.trim().length > 0);
+    if (meaningful.length > 0) return meaningful[meaningful.length - 1].trim();
     return "";
   } catch (e) {
-    console.error("[fetchAlertText] error:", e.message);
+    console.error("[fetchAlert] error:", e.message);
     return "";
   }
 }
@@ -1525,23 +1543,53 @@ async function solveWebAutomation(query, assets = []) {
   let browser;
   try {
     let chromium;
-    try {
-      const pw = await import("playwright");
-      chromium = pw.chromium;
-    } catch {
+
+    // Try to load playwright — if missing, install it automatically
+    async function loadPlaywright() {
+      // Try standard import
+      try {
+        const pw = await import("playwright");
+        return pw.chromium;
+      } catch {}
+      // Try common global paths
       for (const p of [
         "/usr/local/lib/node_modules/playwright/index.js",
         "/usr/lib/node_modules/playwright/index.js",
         "/home/claude/.npm-global/lib/node_modules/playwright/index.js",
+        "/app/node_modules/playwright/index.js",
+        "./node_modules/playwright/index.js",
       ]) {
         try {
           const pw = await import(p);
-          chromium = pw.chromium;
-          break;
+          return pw.chromium;
         } catch {}
       }
-      if (!chromium) throw new Error("playwright not found");
+      // Auto-install playwright
+      console.log("[WebAuto] playwright not found, installing...");
+      const { execSync } = await import("node:child_process");
+      try {
+        execSync(
+          "npm install -g playwright && npx playwright install chromium --with-deps",
+          {
+            timeout: 120000,
+            stdio: "pipe",
+          },
+        );
+        const pw = await import("playwright");
+        return pw.chromium;
+      } catch (e) {
+        console.error("[WebAuto] install failed:", e.message);
+      }
+      // Try puppeteer as last resort
+      try {
+        const pup = await import("puppeteer");
+        return { launch: pup.default.launch.bind(pup.default) };
+      } catch {}
+      return null;
     }
+
+    chromium = await loadPlaywright();
+    if (!chromium) throw new Error("playwright not found");
 
     browser = await chromium.launch({
       headless: true,
