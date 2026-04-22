@@ -1428,9 +1428,186 @@ function stripInjection(q) {
   return s;
 }
 
+async function solveWebAutomation(query, assets = []) {
+  // Detect web automation / browser interaction tasks
+  const text = normalizeSpaces(query);
+  const isWebTask =
+    /go\s+to\s+the\s+link|click.*button|button.*click|confirmation\s+message|alert.*box|simple\s+button\s+tab/i.test(
+      text,
+    );
+  if (!isWebTask) return "";
+
+  // Collect candidate URLs: from assets array first, then from query text
+  const urlsFromQuery = [];
+  const urlRe = /https?:\/\/[^\s"'<>)]+/g;
+  let m;
+  while ((m = urlRe.exec(text)) !== null) {
+    urlsFromQuery.push(m[0].replace(/[.,;:!?]+$/, ""));
+  }
+  const allUrls = [...assets, ...urlsFromQuery].filter(Boolean);
+
+  if (allUrls.length === 0) return "";
+
+  let browser;
+  try {
+    const { chromium } = await import("playwright");
+    browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    // Collect dialog messages
+    const dialogMessages = [];
+    page.on("dialog", async (dialog) => {
+      dialogMessages.push(dialog.message());
+      await dialog.accept();
+    });
+
+    const targetUrl = allUrls[0];
+    await page.goto(targetUrl, { waitUntil: "networkidle", timeout: 30000 });
+
+    // Step 1: Try to click "Simple Button" tab if it exists
+    try {
+      const simpleTabSelectors = [
+        'text="Simple Button"',
+        '[role="tab"]:has-text("Simple Button")',
+        'button:has-text("Simple Button")',
+        'a:has-text("Simple Button")',
+        'li:has-text("Simple Button")',
+        '[data-tab*="simple" i]',
+        'nav a:has-text("simple")',
+      ];
+      for (const sel of simpleTabSelectors) {
+        try {
+          const el = page.locator(sel).first();
+          if (await el.isVisible({ timeout: 2000 })) {
+            await el.click();
+            await page.waitForTimeout(800);
+            break;
+          }
+        } catch {
+          // try next selector
+        }
+      }
+    } catch {
+      // no tab found, proceed anyway
+    }
+
+    // Step 2: Click the button named 'Click'
+    const clickButtonSelectors = [
+      'button:has-text("Click")',
+      'input[type="button"][value="Click"]',
+      'input[type="submit"][value="Click"]',
+      '[role="button"]:has-text("Click")',
+      'a:has-text("Click")',
+    ];
+
+    let clicked = false;
+    for (const sel of clickButtonSelectors) {
+      try {
+        const el = page.locator(sel).first();
+        if (await el.isVisible({ timeout: 3000 })) {
+          await el.click();
+          await page.waitForTimeout(1500);
+          clicked = true;
+          break;
+        }
+      } catch {
+        // try next
+      }
+    }
+
+    // If exact "Click" button not found, try any prominent button on the page
+    if (!clicked) {
+      try {
+        const buttons = page.locator(
+          "button, input[type='button'], input[type='submit']",
+        );
+        const count = await buttons.count();
+        for (let i = 0; i < count; i++) {
+          const btn = buttons.nth(i);
+          const btnText = (await btn.innerText().catch(() => "")).toLowerCase();
+          const btnVal = (
+            (await btn.getAttribute("value").catch(() => "")) || ""
+          ).toLowerCase();
+          if (
+            btnText.includes("click") ||
+            btnVal.includes("click") ||
+            btnText === "go" ||
+            btnText === "submit" ||
+            btnText === "run"
+          ) {
+            await btn.click();
+            await page.waitForTimeout(1500);
+            clicked = true;
+            break;
+          }
+        }
+      } catch {
+        // fallback
+      }
+    }
+
+    // Step 3: Collect dialog message (alert/confirm/prompt)
+    if (dialogMessages.length > 0) {
+      return dialogMessages[dialogMessages.length - 1].trim();
+    }
+
+    // Step 4: If no dialog, look for confirmation text in the page
+    // Check for common confirmation containers
+    await page.waitForTimeout(1000);
+    const confirmSelectors = [
+      "#result",
+      "#output",
+      "#message",
+      "#confirmation",
+      ".result",
+      ".output",
+      ".message",
+      ".confirmation",
+      ".alert",
+      '[role="alert"]',
+      "#alert",
+      ".modal-body",
+      ".popup",
+      ".response",
+    ];
+
+    for (const sel of confirmSelectors) {
+      try {
+        const el = page.locator(sel).first();
+        if (await el.isVisible({ timeout: 500 })) {
+          const txt = (await el.innerText()).trim();
+          if (txt) return txt;
+        }
+      } catch {
+        // continue
+      }
+    }
+
+    // Last resort: return visible page text change
+    return "";
+  } catch (err) {
+    console.error("[WebAutomation] error:", err.message);
+    return "";
+  } finally {
+    if (browser) {
+      try {
+        await browser.close();
+      } catch {
+        // ignore
+      }
+    }
+  }
+}
+
 async function solve(query, assets = []) {
   const cleanQ = stripInjection(query);
-  // Try fast local rules first (no latency, no API cost)
+
+  // Try web automation first if the query looks like a browser task
+  const webResult = await solveWebAutomation(cleanQ, assets);
+  if (webResult !== "") return webResult;
+
+  // Try fast local rules (no latency, no API cost)
   if (assets.length === 0) {
     const local = solveLocal(cleanQ);
     if (local !== "") return local;
