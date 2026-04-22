@@ -450,26 +450,53 @@ function solveLocal(query) {
   return "";
 }
 
-async function solveWithLlm(query) {
+async function solveWithLlm(query, assets = []) {
   const apiKey = process.env.OPENAI_API_KEY || "";
   if (!apiKey) return "";
+
+  let assetContext = "";
+  if (assets.length > 0) {
+    const fetched = await Promise.all(
+      assets.map(async (url) => {
+        try {
+          const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+          const text = await r.text();
+          return "[Asset: " + url + "]\n" + text.slice(0, 4000);
+        } catch {
+          return "[Asset: " + url + " - could not fetch]";
+        }
+      }),
+    );
+    assetContext = fetched.join("\n\n");
+  }
+
+  const userMessage = assetContext
+    ? assetContext + "\n\n" + String(query)
+    : String(query);
+
+  const systemPrompt = [
+    "You are a precise answer engine. Rules:",
+    "- Return ONLY the final answer, nothing else.",
+    "- No preamble, no explanation, no punctuation unless it is part of the answer.",
+    "- For math/computation (sum, product, filter numbers, etc.), return only the numeric result.",
+    "- For yes/no questions, output exactly YES or NO.",
+    "- For extraction tasks (dates, names, values), return only the extracted value.",
+    "- For string tasks (reverse, uppercase, etc.), return only the transformed string.",
+    "- Never add units, labels, or sentences around the answer.",
+  ].join("\n");
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: "Bearer " + apiKey,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-4o-mini",
       temperature: 0,
       messages: [
-        {
-          role: "system",
-          content:
-            "You are a function that answers the user's query. Return only the final answer text with no extra words, no JSON, no quotes, no markdown. If the question is yes/no, output exactly YES or NO.",
-        },
-        { role: "user", content: String(query) },
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userMessage },
       ],
     }),
   });
@@ -480,11 +507,8 @@ async function solveWithLlm(query) {
   return normalizeSpaces(String(content));
 }
 
-async function solve(query) {
-  const local = solveLocal(query);
-  if (local) return local;
-  const llm = await solveWithLlm(query);
-  return llm || "";
+async function solve(query, assets = []) {
+  return (await solveWithLlm(query, assets)) || "";
 }
 
 export async function createServerApp(overrides = {}) {
@@ -1469,7 +1493,8 @@ export async function createServerApp(overrides = {}) {
           badRequest(response, "query is required.");
           return;
         }
-        const out = await solve(query);
+        const assets = Array.isArray(body?.assets) ? body.assets : [];
+        const out = await solve(query, assets);
         json(response, 200, { output: out });
         return;
       }
