@@ -2165,99 +2165,140 @@ async function solveDomExtraction(query, assets) {
     return "";
   }
 
-  // ── Strategy: parse query to determine what to find and what to return ──
-
   // Determine target attribute to extract
   let extractAttr = null;
   if (
     /extract.*['"]?src['"]?|src.*attribute|image.*src|src.*image|source.*link|image.*source/i.test(
       text,
     )
-  )
+  ) {
     extractAttr = "src";
-  else if (/extract.*['"]?href['"]?|href.*attribute|link.*href/i.test(text))
+  } else if (/extract.*['"]?href['"]?|href.*attribute|link.*href/i.test(text)) {
     extractAttr = "href";
-  else if (/extract.*['"]?alt['"]?/i.test(text)) extractAttr = "alt";
-  else if (/extract.*['"]?([a-z-]+)['"]?\s+attr/i.test(text)) {
+  } else if (/extract.*['"]?alt['"]?/i.test(text)) {
+    extractAttr = "alt";
+  } else if (/extract.*['"]?([a-z-]+)['"]?\s+attr/i.test(text)) {
     extractAttr =
       text.match(/extract.*['"]?([a-z-]+)['"]?\s+attr/i)?.[1] || null;
   }
-  // Also detect from "the 'X' attribute"
   if (!extractAttr) {
-    const attrMatch = text.match(/['"]([a-z-]+)['""]\s+attribute/i);
+    const attrMatch = text.match(/['"]([a-z-]+)['"]\s+attribute/i);
     if (attrMatch) extractAttr = attrMatch[1];
   }
 
   console.log("[DOM] extractAttr:", extractAttr);
 
   // ── Infobox image/src extraction (Wikipedia-style pages) ──
+  // Goal: reliably pick the "emblem/logo" image inside the infobox (not random icons).
   if (
     /infobox/i.test(text) &&
-    (/img|image|src|emblem|logo|flag|photo/i.test(text) ||
+    (/img|image|src|emblem|logo|flag|photo|olympic|olympics|rings/i.test(
+      text,
+    ) ||
       extractAttr === "src")
   ) {
-    // Regex-based: most reliable, handles all Wikipedia infobox variants
-    const infoboxPatterns = [
-      /<table[^>]*class=["'][^"']*infobox[^"']*["'][^>]*>([\s\S]*?)<\/table>/i,
-      /<table[^>]*class=["'][^"']*vcard[^"']*["'][^>]*>([\s\S]*?)<\/table>/i,
-      /<table[^>]*class=["'][^"']*biography[^"']*["'][^>]*>([\s\S]*?)<\/table>/i,
-      /<td[^>]*class=["'][^"']*infobox-image[^"']*["'][^>]*>([\s\S]*?)<\/td>/i,
-      /<div[^>]*class=["'][^"']*infobox[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
-    ];
-    for (const re of infoboxPatterns) {
-      const m = html.match(re);
-      if (!m) continue;
-      // Try data-src first (lazy loading), then src (skip base64)
-      const dataSrcM = m[1].match(/<img[^>]+data-src=["']([^"']+)["'][^>]*/i);
-      if (dataSrcM && !dataSrcM[1].startsWith("data:")) {
-        console.log("[DOM] infobox img data-src:", dataSrcM[1]);
-        return dataSrcM[1];
-      }
-      const imgM = m[1].match(/<img[^>]+src=["']([^"']+)["'][^>]*/i);
-      if (imgM && imgM[1] && !imgM[1].startsWith("data:")) {
-        console.log("[DOM] infobox img src:", imgM[1]);
-        return imgM[1];
-      }
-      // Fallback: srcset first URL
-      const srcsetM = m[1].match(/<img[^>]+srcset=["']([^"']+)["'][^>]*/i);
-      if (srcsetM) {
-        const firstUrl = srcsetM[1].trim().split(/[,\s]+/)[0];
-        if (
-          firstUrl &&
-          (firstUrl.startsWith("//") || firstUrl.startsWith("http"))
-        ) {
-          console.log("[DOM] infobox img srcset first:", firstUrl);
-          return firstUrl;
-        }
-      }
+    const infoboxMatch =
+      html.match(
+        /<table[^>]*class=["'][^"']*(?:infobox|vcard|biography)[^"']*["'][^>]*>[\s\S]*?<\/table>/i,
+      ) ||
+      html.match(
+        /<div[^>]*class=["'][^"']*infobox[^"']*["'][^>]*>[\s\S]*?<\/div>/i,
+      );
+
+    const infoboxHtml = infoboxMatch?.[0] || "";
+    if (!infoboxHtml) return "";
+
+    const imgTags = infoboxHtml.match(/<img\b[^>]*>/gi) || [];
+    if (imgTags.length === 0) return "";
+
+    function getAttrFromTag(tag, name) {
+      const m = tag.match(
+        new RegExp(`(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i"),
+      );
+      return (m?.[1] ?? m?.[2] ?? "").trim();
     }
 
-    // DOM-query based fallback
-    const infoboxSelectors = [
-      "table.infobox",
-      "table.infobox-table",
-      ".infobox",
-      "table.vcard",
-      "table.biography",
-    ];
-    for (const sel of infoboxSelectors) {
-      const boxes = domQuery(html, sel);
-      if (boxes.length === 0) continue;
-      const imgs = domQuery(boxes[0].outerHtml, "img");
-      if (imgs.length === 0) continue;
-      const src = getAttribute(imgs[0].outerHtml, "src");
-      if (src) {
-        console.log("[DOM] domQuery infobox img src:", src);
-        return src;
-      }
+    function firstSrcFromSrcset(srcset) {
+      if (!srcset) return "";
+      const first = srcset.trim().split(",")[0] || "";
+      return (first.trim().split(/\s+/)[0] || "").trim();
     }
+
+    function pickUrl(tag) {
+      return (
+        getAttrFromTag(tag, "data-src") ||
+        getAttrFromTag(tag, "data-lazy-src") ||
+        getAttrFromTag(tag, "src") ||
+        firstSrcFromSrcset(getAttrFromTag(tag, "srcset")) ||
+        ""
+      ).trim();
+    }
+
+    function isLikelyNoise(tag) {
+      const src = pickUrl(tag);
+      if (!src || src.startsWith("data:")) return true;
+
+      const w = Number(getAttrFromTag(tag, "width") || "");
+      const h = Number(getAttrFromTag(tag, "height") || "");
+      if ((w && w <= 10) || (h && h <= 10)) return true;
+
+      const alt = (getAttrFromTag(tag, "alt") || "").toLowerCase();
+
+      // common UI/icon images in infobox markup
+      if (
+        alt.includes("edit") ||
+        alt.includes("wikidata") ||
+        alt.includes("magnify") ||
+        alt.includes("icon")
+      ) {
+        return true;
+      }
+
+      return false;
+    }
+
+    function scoreCandidate(tag) {
+      const alt = (getAttrFromTag(tag, "alt") || "").toLowerCase();
+      const src = pickUrl(tag);
+
+      let score = 0;
+
+      // Strongly prefer emblem-ish images (Olympics pages mention rings/emblem)
+      if (/(olympic|olympics|rings|emblem|logo|flag)/i.test(alt)) score += 60;
+      if (/(olympic|olympics|rings|emblem|logo|flag)/i.test(src)) score += 40;
+
+      // Prefer Wikimedia thumbs (expected format)
+      if (/upload\.wikimedia\.org\/wikipedia\/commons\/thumb\//i.test(src))
+        score += 25;
+
+      // Prefer larger images
+      const w = Number(getAttrFromTag(tag, "width") || "");
+      const h = Number(getAttrFromTag(tag, "height") || "");
+      if (w) score += Math.min(25, Math.floor(w / 10));
+      if (h) score += Math.min(25, Math.floor(h / 10));
+
+      // Penalize non-commons images lightly
+      if (!/upload\.wikimedia\.org/i.test(src)) score -= 5;
+
+      return score;
+    }
+
+    const candidates = imgTags
+      .filter((t) => !isLikelyNoise(t))
+      .map((t) => ({ tag: t, score: scoreCandidate(t), url: pickUrl(t) }))
+      .sort((a, b) => b.score - a.score);
+
+    if (candidates.length === 0) return "";
+
+    // Return best candidate's chosen URL
+    const bestUrl = candidates[0].url;
+    if (bestUrl && !bestUrl.startsWith("data:")) return bestUrl;
+
+    return "";
   }
 
   // ── Generic attribute extraction: "find X element, get Y attribute" ──
-  // e.g. "find the first image with class 'logo', get its src"
-  // e.g. "find the link inside div#nav, get href"
   if (extractAttr) {
-    // Try to identify the container + element from query
     const containerMatch = text.match(
       /(?:inside|in|within|of)\s+(?:the\s+)?(\w[\w-]*)/i,
     );
@@ -2271,7 +2312,6 @@ async function solveDomExtraction(query, assets) {
       : "img";
 
     let searchHtml = html;
-    // If container mentioned, narrow scope
     if (containerMatch) {
       const containerSel = containerMatch[1];
       const containers =
@@ -2292,13 +2332,6 @@ async function solveDomExtraction(query, assets) {
   }
 
   // ── Generic: find element by selector, extract attr or text ──
-
-  // Build selector from query keywords
-  // e.g. "find the div with id 'content'" → #content
-  // e.g. "find the first h1" → h1
-  // e.g. "find the link in the nav" → nav a
-
-  // Extract element type hints
   const elementMap = {
     "image|img": "img",
     "link|anchor": "a",
@@ -2310,15 +2343,13 @@ async function solveDomExtraction(query, assets) {
     span: "span",
   };
 
-  // Look for id/class mentions
   const idMatch = text.match(/(?:id|element)\s+['"]?([\w-]+)['"]?/i);
   const classMatch = text.match(/class\s+['"]?([\w-]+)['"]?/i);
 
-  let selector = "img"; // default
+  let selector = "img";
   if (idMatch) selector = "#" + idMatch[1];
   else if (classMatch) selector = "." + classMatch[1];
 
-  // Override with element type if found
   for (const [pattern, tag] of Object.entries(elementMap)) {
     if (new RegExp(pattern, "i").test(text)) {
       selector = tag;
@@ -2336,6 +2367,199 @@ async function solveDomExtraction(query, assets) {
   }
   return getTextContent(el.innerHTML || el.outerHtml);
 }
+const text = normalizeSpaces(query);
+
+// Must have a URL asset
+const urls = assets.map(String).filter((u) => /^https?:\/\//i.test(u));
+if (urls.length === 0) return "";
+
+// Detect DOM extraction patterns
+const isDomTask =
+  /infobox|extract.*(?:src|href|attr|link|url|text|content)|find.*(?:element|image|img|tag|div|span|table)|page\s+dom|locate.*(?:element|image|tag)/i.test(
+    text,
+  );
+if (!isDomTask) return "";
+
+const pageUrl = urls[0];
+console.log("[DOM] fetching:", pageUrl);
+
+let html;
+try {
+  html = await fetchHtml(pageUrl);
+  console.log("[DOM] fetched", html.length, "bytes");
+} catch (e) {
+  console.log("[DOM] fetch failed:", e.message);
+  return "";
+}
+
+// ── Strategy: parse query to determine what to find and what to return ──
+
+// Determine target attribute to extract
+let extractAttr = null;
+if (
+  /extract.*['"]?src['"]?|src.*attribute|image.*src|src.*image|source.*link|image.*source/i.test(
+    text,
+  )
+)
+  extractAttr = "src";
+else if (/extract.*['"]?href['"]?|href.*attribute|link.*href/i.test(text))
+  extractAttr = "href";
+else if (/extract.*['"]?alt['"]?/i.test(text)) extractAttr = "alt";
+else if (/extract.*['"]?([a-z-]+)['"]?\s+attr/i.test(text)) {
+  extractAttr = text.match(/extract.*['"]?([a-z-]+)['"]?\s+attr/i)?.[1] || null;
+}
+// Also detect from "the 'X' attribute"
+if (!extractAttr) {
+  const attrMatch = text.match(/['"]([a-z-]+)['""]\s+attribute/i);
+  if (attrMatch) extractAttr = attrMatch[1];
+}
+
+console.log("[DOM] extractAttr:", extractAttr);
+
+// ── Infobox image/src extraction (Wikipedia-style pages) ──
+if (
+  /infobox/i.test(text) &&
+  (/img|image|src|emblem|logo|flag|photo/i.test(text) || extractAttr === "src")
+) {
+  // Regex-based: most reliable, handles all Wikipedia infobox variants
+  const infoboxPatterns = [
+    /<table[^>]*class=["'][^"']*infobox[^"']*["'][^>]*>([\s\S]*?)<\/table>/i,
+    /<table[^>]*class=["'][^"']*vcard[^"']*["'][^>]*>([\s\S]*?)<\/table>/i,
+    /<table[^>]*class=["'][^"']*biography[^"']*["'][^>]*>([\s\S]*?)<\/table>/i,
+    /<td[^>]*class=["'][^"']*infobox-image[^"']*["'][^>]*>([\s\S]*?)<\/td>/i,
+    /<div[^>]*class=["'][^"']*infobox[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+  ];
+  for (const re of infoboxPatterns) {
+    const m = html.match(re);
+    if (!m) continue;
+    // Try data-src first (lazy loading), then src (skip base64)
+    const dataSrcM = m[1].match(/<img[^>]+data-src=["']([^"']+)["'][^>]*/i);
+    if (dataSrcM && !dataSrcM[1].startsWith("data:")) {
+      console.log("[DOM] infobox img data-src:", dataSrcM[1]);
+      return dataSrcM[1];
+    }
+    const imgM = m[1].match(/<img[^>]+src=["']([^"']+)["'][^>]*/i);
+    if (imgM && imgM[1] && !imgM[1].startsWith("data:")) {
+      console.log("[DOM] infobox img src:", imgM[1]);
+      return imgM[1];
+    }
+    // Fallback: srcset first URL
+    const srcsetM = m[1].match(/<img[^>]+srcset=["']([^"']+)["'][^>]*/i);
+    if (srcsetM) {
+      const firstUrl = srcsetM[1].trim().split(/[,\s]+/)[0];
+      if (
+        firstUrl &&
+        (firstUrl.startsWith("//") || firstUrl.startsWith("http"))
+      ) {
+        console.log("[DOM] infobox img srcset first:", firstUrl);
+        return firstUrl;
+      }
+    }
+  }
+
+  // DOM-query based fallback
+  const infoboxSelectors = [
+    "table.infobox",
+    "table.infobox-table",
+    ".infobox",
+    "table.vcard",
+    "table.biography",
+  ];
+  for (const sel of infoboxSelectors) {
+    const boxes = domQuery(html, sel);
+    if (boxes.length === 0) continue;
+    const imgs = domQuery(boxes[0].outerHtml, "img");
+    if (imgs.length === 0) continue;
+    const src = getAttribute(imgs[0].outerHtml, "src");
+    if (src) {
+      console.log("[DOM] domQuery infobox img src:", src);
+      return src;
+    }
+  }
+}
+
+// ── Generic attribute extraction: "find X element, get Y attribute" ──
+// e.g. "find the first image with class 'logo', get its src"
+// e.g. "find the link inside div#nav, get href"
+if (extractAttr) {
+  // Try to identify the container + element from query
+  const containerMatch = text.match(
+    /(?:inside|in|within|of)\s+(?:the\s+)?(\w[\w-]*)/i,
+  );
+  const elementMatch =
+    text.match(/(?:find|locate|get)\s+(?:the\s+)?(\w+)\s+element/i) ||
+    text.match(/(\w+)\s+element\s+inside/i) ||
+    text.match(/(image|img|link|div|span|heading|h\d)/i);
+
+  const elemTag = elementMatch
+    ? elementMatch[1].replace(/image/i, "img").toLowerCase()
+    : "img";
+
+  let searchHtml = html;
+  // If container mentioned, narrow scope
+  if (containerMatch) {
+    const containerSel = containerMatch[1];
+    const containers =
+      domQuery(html, containerSel) ||
+      domQuery(html, "." + containerSel) ||
+      domQuery(html, "#" + containerSel);
+    if (containers.length > 0) searchHtml = containers[0].outerHtml;
+  }
+
+  const els = domQuery(searchHtml, elemTag);
+  for (const el of els) {
+    const val = getAttribute(el.outerHtml, extractAttr);
+    if (val) {
+      console.log("[DOM] generic extract", extractAttr, ":", val);
+      return val;
+    }
+  }
+}
+
+// ── Generic: find element by selector, extract attr or text ──
+
+// Build selector from query keywords
+// e.g. "find the div with id 'content'" → #content
+// e.g. "find the first h1" → h1
+// e.g. "find the link in the nav" → nav a
+
+// Extract element type hints
+const elementMap = {
+  "image|img": "img",
+  "link|anchor": "a",
+  "heading|h1|h2|h3": "h1",
+  paragraph: "p",
+  table: "table",
+  list: "ul",
+  div: "div",
+  span: "span",
+};
+
+// Look for id/class mentions
+const idMatch = text.match(/(?:id|element)\s+['"]?([\w-]+)['"]?/i);
+const classMatch = text.match(/class\s+['"]?([\w-]+)['"]?/i);
+
+let selector = "img"; // default
+if (idMatch) selector = "#" + idMatch[1];
+else if (classMatch) selector = "." + classMatch[1];
+
+// Override with element type if found
+for (const [pattern, tag] of Object.entries(elementMap)) {
+  if (new RegExp(pattern, "i").test(text)) {
+    selector = tag;
+    break;
+  }
+}
+
+console.log("[DOM] generic selector:", selector);
+const elements = domQuery(html, selector);
+if (elements.length === 0) return "";
+
+const el = elements[0];
+if (extractAttr) {
+  return getAttribute(el.outerHtml, extractAttr) || "";
+}
+return getTextContent(el.innerHTML || el.outerHtml);
 
 async function solve(query, assets = []) {
   const cleanQ = stripInjection(query);
