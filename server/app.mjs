@@ -1321,10 +1321,11 @@ export async function createServerApp(overrides = {}) {
           const out = Number.isInteger(result)
             ? String(result)
             : String(result);
+
           return `The sum is ${out}.`;
         })();
 
-        json(response, 200, { output: answer, answer });
+        json(response, 200, { output: answer });
         return;
       }
 
