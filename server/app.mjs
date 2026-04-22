@@ -1688,13 +1688,12 @@ export async function createServerApp(overrides = {}) {
         const out = await solve(query, assets);
         console.log("[EVAL] Q: " + JSON.stringify(String(query).slice(0, 300)));
         console.log("[EVAL] A: " + JSON.stringify(String(out).slice(0, 300)));
-        // Return all accepted field names so evaluator definitely finds it
-        json(response, 200, {
-          output: out,
-          result: out,
-          answer: out,
-          response: out,
+        // Return plain text — evaluator does cosine on the raw body
+        response.writeHead(200, {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Access-Control-Allow-Origin": "*",
         });
+        response.end(String(out).trim());
         return;
       }
 
