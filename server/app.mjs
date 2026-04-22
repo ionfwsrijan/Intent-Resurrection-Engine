@@ -450,6 +450,28 @@ function solveLocal(query) {
   return "";
 }
 
+async function callOpenAI(apiKey, messages, model) {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer " + apiKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: model || "gpt-4o",
+      temperature: 0,
+      messages: messages,
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error("OpenAI error:", res.status, errText);
+    return "";
+  }
+  const data = await res.json();
+  return String(data?.choices?.[0]?.message?.content ?? "").trim();
+}
+
 async function solveWithLlm(query, assets = []) {
   const apiKey = process.env.OPENAI_API_KEY || "";
   if (!apiKey) return "";
@@ -470,99 +492,76 @@ async function solveWithLlm(query, assets = []) {
     assetContext = fetched.join("\n\n");
   }
 
-  const userMessage = assetContext
-    ? assetContext + "\n\n" + String(query)
-    : String(query);
+  const context = assetContext ? assetContext + "\n\n" : "";
+  const fullQuestion = context + String(query);
 
-  const systemPrompt = [
-    "You are a precise answer engine. Your ONLY job is to output the final answer with zero extra words.",
-    "Output ONLY the answer. No explanation. No punctuation added. No labels. No markdown. No quotes around the answer.",
-    "",
-    "=== COMPARISON & RANKING EXAMPLES ===",
-    "Q: Alice scored 80, Bob scored 90. Who scored highest? -> Bob",
-    "Q: Alice scored 80, Bob scored 90. Who scored lowest? -> Alice",
-    "Q: Tom is 25, Sara is 30, Mike is 22. Who is oldest? -> Sara",
-    "Q: Tom is 25, Sara is 30, Mike is 22. Who is youngest? -> Mike",
-    "Q: Red costs $5, Blue costs $3, Green costs $7. Which is cheapest? -> Blue",
-    "Q: Red costs $5, Blue costs $3, Green costs $7. Which is most expensive? -> Green",
-    "Q: Alice ran 5km, Bob ran 3km, Carol ran 7km. Who ran the most? -> Carol",
-    "Q: Alice ran 5km, Bob ran 3km, Carol ran 7km. Rank from highest to lowest. -> Carol, Alice, Bob",
-    "Q: A=10, B=20, C=15. What is the highest value? -> 20",
-    "Q: A=10, B=20, C=15. Which variable has the highest value? -> B",
-    "",
-    "=== NUMBER LIST EXAMPLES ===",
-    "Q: Numbers: 2,5,8,11. Sum even numbers. -> 10",
-    "Q: Numbers: 1,3,4,6,9. List odd numbers. -> 1, 3, 9",
-    "Q: Numbers: 2,5,8,11. Product of odd numbers. -> 55",
-    "Q: Numbers: 3,7,2,9,4. Largest number. -> 9",
-    "Q: Numbers: 3,7,2,9,4. Smallest number. -> 2",
-    "Q: Numbers: 1,2,3,4,5. Average. -> 3",
-    "Q: Numbers: 10,20,30. Sort descending. -> 30, 20, 10",
-    "Q: Numbers: 10,20,30. Sort ascending. -> 10, 20, 30",
-    "Q: Numbers: 3,1,4,1,5. Remove duplicates. -> 3, 1, 4, 5",
-    "Q: Numbers: 2,4,6,8. Count even numbers. -> 4",
-    "Q: Numbers: 1,2,3,4,5,6. Sum all. -> 21",
-    "Q: Numbers: 5,10,15,20. Mean. -> 12.5",
-    "",
-    "=== LOGIC & CONDITIONALS EXAMPLES ===",
-    "Q: If x=5 and y=10, what is x+y? -> 15",
-    "Q: If a product costs $50 and has 20% discount, what is the final price? -> 40",
-    "Q: John has 10 apples and gives 3 to Mary. How many does John have? -> 7",
-    "Q: A train travels 60mph for 2 hours. How far does it travel? -> 120",
-    "Q: There are 5 red and 3 blue balls. How many balls total? -> 8",
-    "Q: Is 17 a prime number? -> YES",
-    "Q: Is 15 a prime number? -> NO",
-    "Q: Is 25 greater than 30? -> NO",
-    "Q: Is 100 divisible by 4? -> YES",
-    "",
-    "=== STRING EXAMPLES ===",
-    'Q: Extract date from: "Meeting on 12 March 2024". -> 12 March 2024',
-    'Q: Reverse the string "hello". -> olleh',
-    'Q: Uppercase "world". -> WORLD',
-    'Q: Lowercase "HELLO". -> hello',
-    'Q: Count vowels in "apple". -> 2',
-    'Q: Count characters in "hello". -> 5',
-    "Q: What is 15 * 4? -> 60",
-    "Q: What is 100 / 4? -> 25",
-    "",
-    "=== RULES ===",
-    "- Name/person answer: just the name (e.g. Bob)",
-    "- Single number answer: just the number (e.g. 42)",
-    "- List answer: comma-space separated (e.g. Carol, Alice, Bob)",
-    "- YES/NO questions: exactly YES or NO",
-    "- String result: just the string",
-    "- Currency: just the number unless unit is part of the answer",
-    "- Never say 'The answer is ...', never add units unless the question asks for them",
-    "- Never use markdown, bullet points, or quotes around your answer",
-    "- If question asks WHO: answer with the person name only",
-    "- If question asks WHICH: answer with the item name only",
-    "- If question asks HOW MANY or WHAT IS: answer with the value only",
+  // Step 1: Reason through the answer (chain-of-thought)
+  const reasoningPrompt =
+    "You are a careful reasoning engine. Solve the following question step by step, showing your work. " +
+    "At the very end of your response, write a line that says exactly: FINAL_ANSWER: <answer> " +
+    "where <answer> is the bare answer value with no extra words. " +
+    "For names: just the name. For numbers: just the number. For lists: comma-space separated values. For yes/no: YES or NO.";
+
+  const reasoningResult = await callOpenAI(
+    apiKey,
+    [
+      { role: "system", content: reasoningPrompt },
+      { role: "user", content: fullQuestion },
+    ],
+    process.env.OPENAI_MODEL || "gpt-4o",
+  );
+
+  // Extract FINAL_ANSWER from reasoning
+  const finalMatch = reasoningResult.match(/FINAL_ANSWER:\s*(.+)$/m);
+  if (finalMatch) {
+    const extracted = finalMatch[1].trim();
+
+    // Step 2: Clean/normalize the extracted answer
+    const cleanPrompt = [
+      "You are a formatter. The user gives you a raw answer value. You must output it in the cleanest possible form.",
+      "Rules:",
+      "- If it is a person name or item name: output just the name, capitalized correctly",
+      "- If it is a number: output just the number (e.g. 42 or 3.5), no units unless they were in the original question",
+      "- If it is a list: output comma-space separated (e.g. Alice, Bob, Carol or 1, 3, 5)",
+      "- If it is YES or NO: output exactly YES or NO",
+      "- If it is a string result: output just the string",
+      "- Strip any surrounding quotes, brackets, markdown",
+      "- Output NOTHING except the clean answer",
+    ].join("\n");
+
+    const cleaned = await callOpenAI(
+      apiKey,
+      [
+        { role: "system", content: cleanPrompt },
+        { role: "user", content: extracted },
+      ],
+      process.env.OPENAI_MODEL || "gpt-4o",
+    );
+
+    return cleaned.trim();
+  }
+
+  // Fallback: if no FINAL_ANSWER tag found, do a direct single-shot call
+  const fallbackPrompt = [
+    "You are an exact answer engine. Output ONLY the bare answer — no explanation, no labels, no intro.",
+    "- WHO questions: just the name",
+    "- WHICH questions: just the item name",
+    "- Number questions: just the number",
+    "- List questions: comma-space separated",
+    "- YES/NO questions: YES or NO",
+    "- String operations: just the result string",
   ].join("\n");
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: "Bearer " + apiKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || "gpt-4o",
-      temperature: 0,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userMessage },
-      ],
-    }),
-  });
+  const fallback = await callOpenAI(
+    apiKey,
+    [
+      { role: "system", content: fallbackPrompt },
+      { role: "user", content: fullQuestion },
+    ],
+    process.env.OPENAI_MODEL || "gpt-4o",
+  );
 
-  if (!res.ok) {
-    const errText = await res.text();
-    console.error("OpenAI error:", res.status, errText);
-    return "";
-  }
-  const data = await res.json();
-  const content = data?.choices?.[0]?.message?.content ?? "";
-  return String(content).trim();
+  return fallback.trim();
 }
 
 async function solve(query, assets = []) {
