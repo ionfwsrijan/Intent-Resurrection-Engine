@@ -408,6 +408,98 @@ function solvePolynomialGcd(query) {
   return String(common);
 }
 
+function solveMatrixTrace(query) {
+  const text = normalizeSpaces(query);
+  if (!/trace\s*\(/i.test(text)) return "";
+
+  // Parse matrix from [[...],[...],...] notation
+  function parseMatrix(s) {
+    // Find outermost [[...]] block
+    const m = s.match(/\[\s*(\[[\s\S]*\])\s*\]/);
+    if (!m) return null;
+    const inner = m[1];
+    // Split into rows: each [...] block
+    const rows = [];
+    const rowRe = /\[([^\]]+)\]/g;
+    let rm;
+    while ((rm = rowRe.exec(inner)) !== null) {
+      const nums = rm[1]
+        .split(/[\s,]+/)
+        .filter(Boolean)
+        .map(Number);
+      if (nums.some(isNaN)) return null;
+      rows.push(nums);
+    }
+    // Validate square
+    if (rows.length === 0) return null;
+    const n = rows.length;
+    if (rows.some((r) => r.length !== n)) return null;
+    return rows;
+  }
+
+  // Matrix multiply (integer safe for moderate sizes)
+  function matMul(A, B) {
+    const n = A.length;
+    const C = Array.from({ length: n }, () => Array(n).fill(0));
+    for (let i = 0; i < n; i++)
+      for (let k = 0; k < n; k++)
+        if (A[i][k] !== 0)
+          for (let j = 0; j < n; j++) C[i][j] += A[i][k] * B[k][j];
+    return C;
+  }
+
+  function matPow(M, p) {
+    const n = M.length;
+    let result = Array.from({ length: n }, (_, i) =>
+      Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)),
+    );
+    let base = M.map((r) => [...r]);
+    while (p > 0) {
+      if (p & 1) result = matMul(result, base);
+      base = matMul(base, base);
+      p >>= 1;
+    }
+    return result;
+  }
+
+  function trace(M) {
+    return M.reduce((s, r, i) => s + r[i], 0);
+  }
+
+  // Normalize unicode superscript digits in trace(...) expressions before matching
+  const supMap = {
+    "⁰": "0",
+    "¹": "1",
+    "²": "2",
+    "³": "3",
+    "⁴": "4",
+    "⁵": "5",
+    "⁶": "6",
+    "⁷": "7",
+    "⁸": "8",
+    "⁹": "9",
+  };
+  const normText = text.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹]/g, (c) => supMap[c] || c);
+
+  // Extract matrix definition: "M = [[...]]" or "let M = [[...]]"
+  const matMatch = normText.match(/[A-Za-z]\s*=\s*(\[\s*\[[\s\S]*?\]\s*\])/);
+  if (!matMatch) return "";
+  const mat = parseMatrix(matMatch[1]);
+  if (!mat) return "";
+
+  // Extract power from trace(M^N) or trace(M8) or trace(M^{8}) etc.
+  const powerMatch =
+    normText.match(/trace\s*\(\s*[A-Za-z]\s*\^?\s*\{?\s*(\d+)\s*\}?\s*\)/i) ||
+    normText.match(/trace\s*\(\s*[A-Za-z]\s*(\d+)\s*\)/i);
+  const power = powerMatch ? Number(powerMatch[1]) : 1;
+
+  // Safety: avoid huge computations (matrix multiply is O(n^3 * log(p)))
+  if (mat.length > 20 || power > 10000) return "";
+
+  const powered = matPow(mat, power);
+  return String(trace(powered));
+}
+
 function solveDefiniteIntegral(query) {
   // Detect integral questions
   const text = normalizeSpaces(query);
@@ -597,7 +689,11 @@ function solveDefiniteIntegral(query) {
 }
 
 function solveLocal(query) {
-  // Try definite integral first
+  // Try matrix trace first
+  const matResult = solveMatrixTrace(query);
+  if (matResult !== "") return matResult;
+
+  // Try definite integral
   const integralResult = solveDefiniteIntegral(query);
   if (integralResult !== "") return integralResult;
 
@@ -855,6 +951,20 @@ async function solveWithLlm(query, assets = []) {
     "Q: p(t)=(t-1)(t-2)(t-4)(t-6), q(t)=(t-2)(t-4)(t-5)(t-6). Compute degree of gcd(p,q) over Q.",
     "Reasoning: roots of p: {1,2,4,6}. roots of q: {2,4,5,6}. Common: {2,4,6} → degree 3.",
     "answer: 3",
+    "",
+    "--- MATRIX TRACE / MATRIX POWERS ---",
+    "trace(M) = sum of diagonal elements. trace(M^n) = compute M^n first (by repeated matrix multiplication), then sum diagonal.",
+    "Q: Let M = [[2,1,0],[0,2,1],[0,0,2]]. Compute trace(M^8).",
+    "Reasoning: M is upper triangular with eigenvalue 2 (multiplicity 3). Compute M^8 via repeated squaring. M^8 diagonal = [256,256,256]. trace = 768.",
+    "answer: 768",
+    "",
+    "Q: Let M = [[1,1],[0,1]]. Compute trace(M^5).",
+    "Reasoning: M^5 = [[1,5],[0,1]]. trace = 1+1 = 2.",
+    "answer: 2",
+    "",
+    "Q: Let M = [[3,0],[0,2]]. Compute trace(M^4).",
+    "Reasoning: M^4 = [[81,0],[0,16]]. trace = 81+16 = 97.",
+    "answer: 97",
     "",
     "--- DEFINITE INTEGRALS (CALCULUS) ---",
     "Method: find antiderivative F(x), then compute F(upper) - F(lower). Antiderivative of x^n = x^(n+1)/(n+1). Antiderivative of constant c = c*x.",
