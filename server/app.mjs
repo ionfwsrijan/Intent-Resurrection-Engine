@@ -408,8 +408,200 @@ function solvePolynomialGcd(query) {
   return String(common);
 }
 
+function solveDefiniteIntegral(query) {
+  // Detect integral questions
+  const text = normalizeSpaces(query);
+  if (!/integral|integrate|\u222b/i.test(text)) return "";
+
+  // Normalize unicode minus/superscripts to ASCII
+  let t = text
+    .replace(/\u2212/g, "-") // unicode minus
+    .replace(/\u00b2/g, "^2") // superscript 2
+    .replace(/\u00b3/g, "^3") // superscript 3
+    .replace(/\u00b9/g, "^1") // superscript 1
+    .replace(/\u2074/g, "^4") // superscript 4
+    .replace(/\u2075/g, "^5")
+    .replace(/\u2076/g, "^6")
+    .replace(/\u2070/g, "^0");
+
+  // Extract bounds: look for patterns like ∫₀³, ∫_0^3, from 0 to 3, [0,3], etc.
+  let lower = null,
+    upper = null;
+
+  // Unicode subscript digits map
+  const subDigits = {
+    "₀": "0",
+    "₁": "1",
+    "₂": "2",
+    "₃": "3",
+    "₄": "4",
+    "₅": "5",
+    "₆": "6",
+    "₇": "7",
+    "₈": "8",
+    "₉": "9",
+  };
+  const supDigits = {
+    "⁰": "0",
+    "¹": "1",
+    "²": "2",
+    "³": "3",
+    "⁴": "4",
+    "⁵": "5",
+    "⁶": "6",
+    "⁷": "7",
+    "⁸": "8",
+    "⁹": "9",
+  };
+
+  // Replace unicode sub/superscript digits in bounds
+  t = t.replace(/[₀₁₂₃₄₅₆₇₈₉]/g, (c) => subDigits[c] || c);
+  t = t.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹]/g, (c) => supDigits[c] || c);
+
+  // After replacing, now look for bounds patterns:
+  // "∫ from A to B", "integral from A to B", "_A^B", subscript/superscript already converted
+  const fromTo = t.match(
+    /(?:integral|∫)\s*(?:from\s+)?(-?[\d.]+)\s*to\s*(-?[\d.]+)/i,
+  );
+  const subSup = t.match(/∫\s*(-?[\d.]+)\s*\^?\s*(-?[\d.]+)/);
+  const underOver = t.match(/_\{?(-?[\d.]+)\}?\s*\^?\{?(-?[\d.]+)\}?/);
+  const bracketBounds = t.match(/\[\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\]/);
+
+  if (fromTo) {
+    lower = Number(fromTo[1]);
+    upper = Number(fromTo[2]);
+  } else if (underOver) {
+    lower = Number(underOver[1]);
+    upper = Number(underOver[2]);
+  } else if (subSup) {
+    lower = Number(subSup[1]);
+    upper = Number(subSup[2]);
+  } else if (bracketBounds) {
+    lower = Number(bracketBounds[1]);
+    upper = Number(bracketBounds[2]);
+  }
+
+  if (lower === null || upper === null) return "";
+
+  // Extract integrand: everything between the bounds info and "dx" (or "dt", etc.)
+  // Remove the integral symbol and bounds first
+  let expr = t;
+  // Remove "∫ ... dx" wrapper
+  const integrandMatch =
+    expr.match(/(?:∫|integral)[^(]*?\(([^)]+)\)\s*d[a-z]/i) ||
+    expr.match(
+      /(?:∫|integral\s+(?:of\s+)?(?:from\s+-?[\d.]+\s+to\s+-?[\d.]+\s+of\s+)?)\s*(.+?)\s*d[a-z]/i,
+    );
+
+  let integrand = "";
+  if (integrandMatch) {
+    integrand = integrandMatch[1];
+  } else {
+    // Try to find "dx" and grab everything before it after the bounds
+    const dxMatch = t.match(/\)\s*d[a-z]/) || t.match(/([^∫]+?)\s+d[a-z]\b/i);
+    if (dxMatch) {
+      // Find the integrand as the text between last bound and dx
+      const dxIdx = t.search(/\bd[a-z]\b/);
+      // Remove prefix up to the numeric bound pattern
+      let raw = t.slice(0, dxIdx);
+      // Strip integral symbol and bounds
+      raw = raw.replace(/(?:definite\s+)?integral[^:]*:/i, "");
+      raw = raw.replace(/∫/g, "");
+      raw = raw
+        .replace(/_\{?-?[\d.]+\}?/g, "")
+        .replace(/\^\{?-?[\d.]+\}?/g, "");
+      raw = raw.replace(/from\s+-?[\d.]+\s+to\s+-?[\d.]+/i, "");
+      raw = raw.replace(/compute|evaluate|find|output|only|the|integer/gi, "");
+      integrand = raw.replace(/[()]/g, "").trim();
+    }
+  }
+
+  if (!integrand) return "";
+
+  // Parse polynomial integrand: sum of terms like a*x^n, a*x, a (constants)
+  // Normalize the expression
+  integrand = integrand
+    .replace(/\s+/g, "")
+    .replace(/\*\*/g, "^")
+    .replace(/×/g, "*");
+
+  // Tokenize into terms (split by + or - keeping sign)
+  // Insert spaces around + and - that are not inside exponents
+  const termStr = integrand.replace(/([+-])/g, " $1 ").trim();
+  const rawTerms = termStr.split(/\s+/).filter(Boolean);
+
+  // Rejoin: group sign with following term
+  const terms = [];
+  let i = 0;
+  while (i < rawTerms.length) {
+    if (
+      (rawTerms[i] === "+" || rawTerms[i] === "-") &&
+      i + 1 < rawTerms.length
+    ) {
+      terms.push(rawTerms[i] + rawTerms[i + 1]);
+      i += 2;
+    } else {
+      terms.push(rawTerms[i]);
+      i++;
+    }
+  }
+
+  // Parse each term into {coeff, power} for a*x^n
+  function parseTerm(term) {
+    const s = term.replace(/\s+/g, "");
+    // Match: [sign][coeff][*][x][^power]
+    // e.g. "9", "-x^2", "3*x^2", "-2x", "x", "+x^3"
+    const re = /^([+-]?\d*\.?\d*)\*?([a-z])?(?:\^([+-]?\d+(?:\.\d+)?))?$/i;
+    const m = s.match(re);
+    if (!m) return null;
+    const varName = m[2] || null;
+    let coeff;
+    if (!m[1] || m[1] === "" || m[1] === "+") coeff = 1;
+    else if (m[1] === "-") coeff = -1;
+    else coeff = Number(m[1]);
+    const power = varName ? (m[3] !== undefined ? Number(m[3]) : 1) : 0;
+    return { coeff, power };
+  }
+
+  // Evaluate antiderivative of polynomial at x=val
+  function antiderivAt(parsedTerms, val) {
+    let sum = 0;
+    for (const { coeff, power } of parsedTerms) {
+      // Antiderivative of c*x^n = c * x^(n+1) / (n+1)
+      const n1 = power + 1;
+      sum += (coeff * Math.pow(val, n1)) / n1;
+    }
+    return sum;
+  }
+
+  const parsedTerms = terms.map(parseTerm).filter(Boolean);
+  if (parsedTerms.length === 0) return "";
+
+  const result =
+    antiderivAt(parsedTerms, upper) - antiderivAt(parsedTerms, lower);
+
+  // Round to avoid floating point noise, then format
+  const rounded = Math.round(result * 1e9) / 1e9;
+  // If integer, return integer string; else return fraction or decimal
+  if (Number.isInteger(rounded)) return String(rounded);
+  // Try to express as simple fraction
+  const denom = 6; // covers most calculus cases
+  for (let d = 1; d <= 1000; d++) {
+    const num = Math.round(rounded * d);
+    if (Math.abs(num / d - rounded) < 1e-9) {
+      if (d === 1) return String(num);
+      return `${num}/${d}`;
+    }
+  }
+  return String(rounded);
+}
+
 function solveLocal(query) {
-  // Try polynomial GCD first
+  // Try definite integral first
+  const integralResult = solveDefiniteIntegral(query);
+  if (integralResult !== "") return integralResult;
+
+  // Try polynomial GCD
   const polyResult = solvePolynomialGcd(query);
   if (polyResult !== "") return polyResult;
 
@@ -663,6 +855,28 @@ async function solveWithLlm(query, assets = []) {
     "Q: p(t)=(t-1)(t-2)(t-4)(t-6), q(t)=(t-2)(t-4)(t-5)(t-6). Compute degree of gcd(p,q) over Q.",
     "Reasoning: roots of p: {1,2,4,6}. roots of q: {2,4,5,6}. Common: {2,4,6} → degree 3.",
     "answer: 3",
+    "",
+    "--- DEFINITE INTEGRALS (CALCULUS) ---",
+    "Method: find antiderivative F(x), then compute F(upper) - F(lower). Antiderivative of x^n = x^(n+1)/(n+1). Antiderivative of constant c = c*x.",
+    "Q: Compute the definite integral: integral from 0 to 3 of (9 - x^2) dx",
+    "Reasoning: Antiderivative of (9-x^2) = 9x - x^3/3. At x=3: 27 - 9 = 18. At x=0: 0. Result: 18.",
+    "answer: 18",
+    "",
+    "Q: Compute the definite integral: integral from 1 to 4 of (2x + 3) dx",
+    "Reasoning: Antiderivative = x^2 + 3x. At x=4: 16+12=28. At x=1: 1+3=4. Result: 24.",
+    "answer: 24",
+    "",
+    "Q: Compute the definite integral: integral from 0 to 2 of (x^3 - 2x) dx",
+    "Reasoning: Antiderivative = x^4/4 - x^2. At x=2: 4-4=0. At x=0: 0. Result: 0.",
+    "answer: 0",
+    "",
+    "Q: Compute the definite integral: integral from -1 to 1 of (3x^2) dx",
+    "Reasoning: Antiderivative = x^3. At x=1: 1. At x=-1: -1. Result: 2.",
+    "answer: 2",
+    "",
+    "Q: Compute the definite integral: integral from 0 to 5 of (x^2 - 4x + 4) dx",
+    "Reasoning: Antiderivative = x^3/3 - 2x^2 + 4x. At x=5: 125/3-50+20=35/3. At x=0: 0. Result: 35/3.",
+    "answer: 35/3",
     "",
     "--- MODULAR ARITHMETIC ---",
     "Q: What is 2^10 mod 1000?",
