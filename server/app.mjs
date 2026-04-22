@@ -1688,12 +1688,8 @@ export async function createServerApp(overrides = {}) {
         const out = await solve(query, assets);
         console.log("[EVAL] Q: " + JSON.stringify(String(query).slice(0, 300)));
         console.log("[EVAL] A: " + JSON.stringify(String(out).slice(0, 300)));
-        // Return plain text — evaluator does cosine on the raw body
-        response.writeHead(200, {
-          "Content-Type": "text/plain; charset=utf-8",
-          "Access-Control-Allow-Origin": "*",
-        });
-        response.end(String(out).trim());
+        // API spec: respond with JSON { "output": "answer string" }
+        json(response, 200, { output: String(out).trim() });
         return;
       }
 
