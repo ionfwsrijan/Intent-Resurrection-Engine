@@ -1,0 +1,932 @@
+[
+  {
+    "intentId": "client_pitch_pricing",
+    "snapshot": {
+      "sessionId": "seed-pitch-001",
+      "title": "Renewal pricing deck for Acme",
+      "channel": "seed",
+      "occurredAt": "2026-04-01T10:30:00.000Z",
+      "context": {
+        "rootPath": "D:/Sales/Acme Deck",
+        "branch": "",
+        "platform": "windows"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "Acme renewal pricing calculator", "url": "https://pricing.example.com/acme-renewal", "active": true },
+          { "title": "Executive summary slide copy", "url": "https://docs.example.com/decks/acme-summary", "active": false }
+        ],
+        "fileActivity": [
+          { "path": "D:/Sales/Acme Deck/Acme Renewal Deck.pptx", "status": "modified" },
+          { "path": "D:/Sales/Acme Deck/PricingBreakdown.xlsx", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "Need pricing deltas and margin story for customer renewal." }
+        ],
+        "terminalHistory": [],
+        "draftNotes": [
+          { "text": "Customer wants final quote slide and spend comparison." }
+        ],
+        "gitStatus": []
+      },
+      "metrics": {
+        "focusSwitchCount": 6,
+        "pauseRatio": 0.16,
+        "typingBurstScore": 0.42,
+        "interruptionCount": 1,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "client_pitch_pricing",
+    "snapshot": {
+      "sessionId": "seed-pitch-002",
+      "title": "Proposal and quote packaging",
+      "channel": "seed",
+      "occurredAt": "2026-04-01T12:20:00.000Z",
+      "context": {
+        "rootPath": "D:/Work/Proposal Studio",
+        "branch": "",
+        "platform": "windows"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "Pricing proposal checklist", "url": "https://notion.example.com/proposal-checklist", "active": true }
+        ],
+        "fileActivity": [
+          { "path": "D:/Work/Proposal Studio/CustomerQuote.pdf", "status": "modified" },
+          { "path": "D:/Work/Proposal Studio/CommercialProposal.docx", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "Commercial framing and discount guardrails" }
+        ],
+        "terminalHistory": [],
+        "draftNotes": [
+          { "text": "Tighten pricing story before final deck export." }
+        ],
+        "gitStatus": []
+      },
+      "metrics": {
+        "focusSwitchCount": 4,
+        "pauseRatio": 0.21,
+        "typingBurstScore": 0.34,
+        "interruptionCount": 0,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "auth_debugging",
+    "snapshot": {
+      "sessionId": "seed-auth-001",
+      "title": "Refresh token bug in production",
+      "channel": "seed",
+      "occurredAt": "2026-04-02T08:40:00.000Z",
+      "context": {
+        "rootPath": "D:/Apps/Auth Service",
+        "branch": "fix/auth-refresh-race",
+        "platform": "windows"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "401 after refresh token rotates", "url": "https://sentry.example.com/issues/auth-401", "active": true }
+        ],
+        "fileActivity": [
+          { "path": "D:/Apps/Auth Service/src/auth/refresh.ts", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "Authorization header invalid after token refresh" }
+        ],
+        "terminalHistory": [
+          { "command": "pnpm test auth -- --watch" },
+          { "command": "curl https://api.example.com/me -H \"Authorization: Bearer demo\"" }
+        ],
+        "draftNotes": [
+          { "text": "Session expiry handling fails when cookie rotates." }
+        ],
+        "gitStatus": [
+          { "path": "src/auth/refresh.ts", "status": "M" }
+        ]
+      },
+      "metrics": {
+        "focusSwitchCount": 10,
+        "pauseRatio": 0.11,
+        "typingBurstScore": 0.88,
+        "interruptionCount": 3,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "auth_debugging",
+    "snapshot": {
+      "sessionId": "seed-auth-002",
+      "title": "OAuth login callback debugging",
+      "channel": "seed",
+      "occurredAt": "2026-04-02T09:10:00.000Z",
+      "context": {
+        "rootPath": "D:/Apps/Login Gateway",
+        "branch": "hotfix/oauth-cookie",
+        "platform": "windows"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "OAuth callback mismatch", "url": "https://docs.example.com/oauth/callbacks", "active": true }
+        ],
+        "fileActivity": [
+          { "path": "D:/Apps/Login Gateway/src/login/callback.ts", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "cookie session lost on redirect" }
+        ],
+        "terminalHistory": [
+          { "command": "node scripts/replay-login.js --oauth" }
+        ],
+        "draftNotes": [
+          { "text": "Need to inspect bearer token and callback cookie handoff." }
+        ],
+        "gitStatus": [
+          { "path": "src/login/callback.ts", "status": "M" }
+        ]
+      },
+      "metrics": {
+        "focusSwitchCount": 8,
+        "pauseRatio": 0.09,
+        "typingBurstScore": 0.74,
+        "interruptionCount": 2,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "research_review",
+    "snapshot": {
+      "sessionId": "seed-research-001",
+      "title": "Transformer paper comparison",
+      "channel": "seed",
+      "occurredAt": "2026-04-03T06:10:00.000Z",
+      "context": {
+        "rootPath": "D:/Research/Literature Review",
+        "branch": "",
+        "platform": "browser"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "Attention Is All You Need", "url": "https://arxiv.org/abs/1706.03762", "active": true },
+          { "title": "Google Scholar citations", "url": "https://scholar.google.com/", "active": false }
+        ],
+        "fileActivity": [
+          { "path": "D:/Research/Literature Review/comparison-table.docx", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "Need citation for baseline method and related work paragraph." }
+        ],
+        "terminalHistory": [],
+        "draftNotes": [
+          { "text": "Compare method, evaluation, and citation counts across papers." }
+        ],
+        "gitStatus": []
+      },
+      "metrics": {
+        "focusSwitchCount": 3,
+        "pauseRatio": 0.44,
+        "typingBurstScore": 0.19,
+        "interruptionCount": 0,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "research_review",
+    "snapshot": {
+      "sessionId": "seed-research-002",
+      "title": "Literature review writing pass",
+      "channel": "seed",
+      "occurredAt": "2026-04-03T07:00:00.000Z",
+      "context": {
+        "rootPath": "D:/Research/Survey Draft",
+        "branch": "",
+        "platform": "windows"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "Semantic Scholar - graph neural networks", "url": "https://www.semanticscholar.org/", "active": true }
+        ],
+        "fileActivity": [
+          { "path": "D:/Research/Survey Draft/literature-review.docx", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "Method comparison and bibliography cleanup" }
+        ],
+        "terminalHistory": [],
+        "draftNotes": [
+          { "text": "Still need related work synthesis and citation normalization." }
+        ],
+        "gitStatus": []
+      },
+      "metrics": {
+        "focusSwitchCount": 2,
+        "pauseRatio": 0.37,
+        "typingBurstScore": 0.22,
+        "interruptionCount": 0,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "incident_response",
+    "snapshot": {
+      "sessionId": "seed-incident-001",
+      "title": "Production alert and rollback check",
+      "channel": "seed",
+      "occurredAt": "2026-04-04T03:15:00.000Z",
+      "context": {
+        "rootPath": "D:/Ops/Incident Desk",
+        "branch": "hotfix/rollback-api",
+        "platform": "windows"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "Datadog latency alert", "url": "https://app.datadoghq.com/monitors/latency", "active": true },
+          { "title": "Sentry production exception", "url": "https://sentry.io/organizations/demo/issues/123", "active": false }
+        ],
+        "fileActivity": [
+          { "path": "D:/Ops/Incident Desk/postmortem.md", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "service degraded after release, validate rollback path now" }
+        ],
+        "terminalHistory": [
+          { "command": "kubectl rollout undo deployment/api" },
+          { "command": "helm history api" }
+        ],
+        "draftNotes": [
+          { "text": "Need containment summary and incident timeline." }
+        ],
+        "gitStatus": [
+          { "path": "infra/release.yaml", "status": "M" }
+        ]
+      },
+      "metrics": {
+        "focusSwitchCount": 14,
+        "pauseRatio": 0.08,
+        "typingBurstScore": 0.84,
+        "interruptionCount": 5,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "incident_response",
+    "snapshot": {
+      "sessionId": "seed-incident-002",
+      "title": "Hotfix release triage",
+      "channel": "seed",
+      "occurredAt": "2026-04-04T04:00:00.000Z",
+      "context": {
+        "rootPath": "D:/Ops/Release Bridge",
+        "branch": "incident/cache-hotfix",
+        "platform": "windows"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "PagerDuty incident bridge", "url": "https://pagerduty.com/incidents/demo", "active": true }
+        ],
+        "fileActivity": [
+          { "path": "D:/Ops/Release Bridge/rollback-checklist.docx", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "rollback now if latency remains above threshold" }
+        ],
+        "terminalHistory": [
+          { "command": "kubectl logs api --since=5m" }
+        ],
+        "draftNotes": [
+          { "text": "Release degraded. Capture mitigation steps before next deploy." }
+        ],
+        "gitStatus": [
+          { "path": "deploy/cache-config.yaml", "status": "M" }
+        ]
+      },
+      "metrics": {
+        "focusSwitchCount": 11,
+        "pauseRatio": 0.1,
+        "typingBurstScore": 0.79,
+        "interruptionCount": 4,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "product_planning",
+    "snapshot": {
+      "sessionId": "seed-planning-001",
+      "title": "Roadmap planning and scope tradeoffs",
+      "channel": "seed",
+      "occurredAt": "2026-04-05T09:00:00.000Z",
+      "context": {
+        "rootPath": "D:/Product/Roadmap",
+        "branch": "",
+        "platform": "windows"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "Q3 roadmap draft", "url": "https://notion.example.com/q3-roadmap", "active": true }
+        ],
+        "fileActivity": [
+          { "path": "D:/Product/Roadmap/PRD - Notifications.docx", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "Need to trim scope before launch milestone review." }
+        ],
+        "terminalHistory": [],
+        "draftNotes": [
+          { "text": "Backlog grooming and milestone shaping for launch." }
+        ],
+        "gitStatus": []
+      },
+      "metrics": {
+        "focusSwitchCount": 4,
+        "pauseRatio": 0.28,
+        "typingBurstScore": 0.31,
+        "interruptionCount": 1,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "product_planning",
+    "snapshot": {
+      "sessionId": "seed-planning-002",
+      "title": "Feature backlog shaping",
+      "channel": "seed",
+      "occurredAt": "2026-04-05T10:20:00.000Z",
+      "context": {
+        "rootPath": "D:/Product/Specs",
+        "branch": "",
+        "platform": "windows"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "Launch plan checklist", "url": "https://docs.example.com/launch-plan", "active": true }
+        ],
+        "fileActivity": [
+          { "path": "D:/Product/Specs/FeatureScope.md", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "Clarify product requirements and milestone ownership" }
+        ],
+        "terminalHistory": [],
+        "draftNotes": [
+          { "text": "Need one clear scope call before backlog movement." }
+        ],
+        "gitStatus": []
+      },
+      "metrics": {
+        "focusSwitchCount": 5,
+        "pauseRatio": 0.24,
+        "typingBurstScore": 0.27,
+        "interruptionCount": 1,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "job_application",
+    "snapshot": {
+      "sessionId": "seed-job-001",
+      "title": "Resume tailoring for ML role",
+      "channel": "seed",
+      "occurredAt": "2026-04-06T13:15:00.000Z",
+      "context": {
+        "rootPath": "D:/Career/Applications",
+        "branch": "",
+        "platform": "windows"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "Machine Learning Engineer - Job description", "url": "https://jobs.example.com/ml-engineer", "active": true }
+        ],
+        "fileActivity": [
+          { "path": "D:/Career/Applications/Resume_Srijan.pdf", "status": "modified" },
+          { "path": "D:/Career/Applications/CoverLetter.docx", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "Tailor resume bullets to model evaluation and deployment." }
+        ],
+        "terminalHistory": [],
+        "draftNotes": [
+          { "text": "Match portfolio projects to job description requirements." }
+        ],
+        "gitStatus": []
+      },
+      "metrics": {
+        "focusSwitchCount": 3,
+        "pauseRatio": 0.2,
+        "typingBurstScore": 0.23,
+        "interruptionCount": 0,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "job_application",
+    "snapshot": {
+      "sessionId": "seed-job-002",
+      "title": "Application form packaging",
+      "channel": "seed",
+      "occurredAt": "2026-04-06T14:05:00.000Z",
+      "context": {
+        "rootPath": "D:/Career/Submissions",
+        "branch": "",
+        "platform": "browser"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "Greenhouse application form", "url": "https://boards.greenhouse.io/demo/jobs/123", "active": true }
+        ],
+        "fileActivity": [
+          { "path": "D:/Career/Submissions/PortfolioLinks.txt", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "Final application checklist and resume attachment names" }
+        ],
+        "terminalHistory": [],
+        "draftNotes": [
+          { "text": "Need clean cover letter and role-specific bullets before submit." }
+        ],
+        "gitStatus": []
+      },
+      "metrics": {
+        "focusSwitchCount": 2,
+        "pauseRatio": 0.18,
+        "typingBurstScore": 0.18,
+        "interruptionCount": 0,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "client_pitch_pricing",
+    "snapshot": {
+      "sessionId": "seed-pitch-003",
+      "title": "Quarterly expansion deck cleanup",
+      "channel": "seed",
+      "occurredAt": "2026-04-07T11:40:00.000Z",
+      "context": {
+        "rootPath": "D:/Revenue/Expansion Pitch",
+        "branch": "",
+        "platform": "windows"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "Expansion pricing scenarios", "url": "https://pricing.example.com/expansion", "active": true }
+        ],
+        "fileActivity": [
+          { "path": "D:/Revenue/Expansion Pitch/Expansion-Deck.pptx", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "Need a cleaner value story and price comparison slide." }
+        ],
+        "terminalHistory": [],
+        "draftNotes": [
+          { "text": "Final exec summary needs margin framing and quote alignment." }
+        ],
+        "gitStatus": []
+      },
+      "metrics": {
+        "focusSwitchCount": 5,
+        "pauseRatio": 0.17,
+        "typingBurstScore": 0.39,
+        "interruptionCount": 1,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "client_pitch_pricing",
+    "snapshot": {
+      "sessionId": "seed-pitch-004",
+      "title": "Customer pricing proposal draft",
+      "channel": "seed",
+      "occurredAt": "2026-04-07T14:10:00.000Z",
+      "context": {
+        "rootPath": "D:/Deals/Proposal Pack",
+        "branch": "",
+        "platform": "windows"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "Proposal template notes", "url": "https://docs.example.com/proposal-template", "active": true }
+        ],
+        "fileActivity": [
+          { "path": "D:/Deals/Proposal Pack/FinalQuote.docx", "status": "modified" },
+          { "path": "D:/Deals/Proposal Pack/Pricing-v2.xlsx", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "Discount tier and final quote language for legal review." }
+        ],
+        "terminalHistory": [],
+        "draftNotes": [
+          { "text": "Still need pricing guardrails and customer-ready proposal framing." }
+        ],
+        "gitStatus": []
+      },
+      "metrics": {
+        "focusSwitchCount": 6,
+        "pauseRatio": 0.19,
+        "typingBurstScore": 0.37,
+        "interruptionCount": 1,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "auth_debugging",
+    "snapshot": {
+      "sessionId": "seed-auth-003",
+      "title": "Session expiry regression hunt",
+      "channel": "seed",
+      "occurredAt": "2026-04-08T08:10:00.000Z",
+      "context": {
+        "rootPath": "D:/Identity/Session Service",
+        "branch": "bugfix/session-expiry",
+        "platform": "windows"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "JWT expiry bug write-up", "url": "https://docs.example.com/auth/jwt-expiry", "active": true }
+        ],
+        "fileActivity": [
+          { "path": "D:/Identity/Session Service/src/session/expiry.ts", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "Refresh cookie expires before bearer token swap completes" }
+        ],
+        "terminalHistory": [
+          { "command": "pnpm test session-expiry -- --watch" }
+        ],
+        "draftNotes": [
+          { "text": "Need to compare auth cookie TTL against JWT refresh issuance." }
+        ],
+        "gitStatus": [
+          { "path": "src/session/expiry.ts", "status": "M" }
+        ]
+      },
+      "metrics": {
+        "focusSwitchCount": 9,
+        "pauseRatio": 0.1,
+        "typingBurstScore": 0.79,
+        "interruptionCount": 2,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "auth_debugging",
+    "snapshot": {
+      "sessionId": "seed-auth-004",
+      "title": "Login session handoff debugging",
+      "channel": "seed",
+      "occurredAt": "2026-04-08T10:00:00.000Z",
+      "context": {
+        "rootPath": "D:/Identity/Login Edge",
+        "branch": "hotfix/login-session",
+        "platform": "windows"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "OAuth session cookie notes", "url": "https://docs.example.com/oauth/session-cookie", "active": true }
+        ],
+        "fileActivity": [
+          { "path": "D:/Identity/Login Edge/src/oauth/session.ts", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "login callback loses oauth session after redirect" }
+        ],
+        "terminalHistory": [
+          { "command": "node scripts/replay-login.js --session" }
+        ],
+        "draftNotes": [
+          { "text": "Session verification fails between callback and bearer issuance." }
+        ],
+        "gitStatus": [
+          { "path": "src/oauth/session.ts", "status": "M" }
+        ]
+      },
+      "metrics": {
+        "focusSwitchCount": 7,
+        "pauseRatio": 0.09,
+        "typingBurstScore": 0.72,
+        "interruptionCount": 2,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "research_review",
+    "snapshot": {
+      "sessionId": "seed-research-003",
+      "title": "Paper synthesis and bibliography review",
+      "channel": "seed",
+      "occurredAt": "2026-04-09T06:40:00.000Z",
+      "context": {
+        "rootPath": "D:/Research/Synthesis Notes",
+        "branch": "",
+        "platform": "browser"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "arXiv: retrieval augmentation", "url": "https://arxiv.org/abs/2401.12345", "active": true },
+          { "title": "IEEE paper reference", "url": "https://ieeexplore.ieee.org/", "active": false }
+        ],
+        "fileActivity": [
+          { "path": "D:/Research/Synthesis Notes/bibliography-cleanup.docx", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "Need related work summary and citation consistency." }
+        ],
+        "terminalHistory": [],
+        "draftNotes": [
+          { "text": "Synthesize baseline methods and evaluation tradeoffs across papers." }
+        ],
+        "gitStatus": []
+      },
+      "metrics": {
+        "focusSwitchCount": 3,
+        "pauseRatio": 0.41,
+        "typingBurstScore": 0.2,
+        "interruptionCount": 0,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "research_review",
+    "snapshot": {
+      "sessionId": "seed-research-004",
+      "title": "Citation gap analysis",
+      "channel": "seed",
+      "occurredAt": "2026-04-09T08:05:00.000Z",
+      "context": {
+        "rootPath": "D:/Research/Survey References",
+        "branch": "",
+        "platform": "windows"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "Scholar search for missing citations", "url": "https://scholar.google.com/scholar?q=missing+citations", "active": true }
+        ],
+        "fileActivity": [
+          { "path": "D:/Research/Survey References/missing-citations.md", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "Track missing studies and citation gaps for final review." }
+        ],
+        "terminalHistory": [],
+        "draftNotes": [
+          { "text": "Need a comparison table for related work and missing references." }
+        ],
+        "gitStatus": []
+      },
+      "metrics": {
+        "focusSwitchCount": 2,
+        "pauseRatio": 0.34,
+        "typingBurstScore": 0.18,
+        "interruptionCount": 0,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "incident_response",
+    "snapshot": {
+      "sessionId": "seed-incident-003",
+      "title": "Rollback validation and outage notes",
+      "channel": "seed",
+      "occurredAt": "2026-04-10T03:30:00.000Z",
+      "context": {
+        "rootPath": "D:/Ops/Hotfix Review",
+        "branch": "rollback/api-cache",
+        "platform": "windows"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "Grafana service health", "url": "https://grafana.example.com/d/api", "active": true }
+        ],
+        "fileActivity": [
+          { "path": "D:/Ops/Hotfix Review/incident-timeline.md", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "validate rollback before next deploy window opens" }
+        ],
+        "terminalHistory": [
+          { "command": "kubectl rollout status deployment/api" }
+        ],
+        "draftNotes": [
+          { "text": "Need outage summary and mitigation checklist." }
+        ],
+        "gitStatus": [
+          { "path": "ops/rollback.md", "status": "M" }
+        ]
+      },
+      "metrics": {
+        "focusSwitchCount": 12,
+        "pauseRatio": 0.09,
+        "typingBurstScore": 0.77,
+        "interruptionCount": 4,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "incident_response",
+    "snapshot": {
+      "sessionId": "seed-incident-004",
+      "title": "Release bridge mitigation tracking",
+      "channel": "seed",
+      "occurredAt": "2026-04-10T04:10:00.000Z",
+      "context": {
+        "rootPath": "D:/Ops/Release Bridge",
+        "branch": "incident/release-latency",
+        "platform": "windows"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "PagerDuty release incident", "url": "https://pagerduty.com/incidents/release", "active": true }
+        ],
+        "fileActivity": [
+          { "path": "D:/Ops/Release Bridge/mitigation-checklist.docx", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "containment steps and rollback owner timeline" }
+        ],
+        "terminalHistory": [
+          { "command": "kubectl describe deploy api" }
+        ],
+        "draftNotes": [
+          { "text": "Track mitigation sequence before reopening the release gate." }
+        ],
+        "gitStatus": [
+          { "path": "deploy/release.yaml", "status": "M" }
+        ]
+      },
+      "metrics": {
+        "focusSwitchCount": 13,
+        "pauseRatio": 0.08,
+        "typingBurstScore": 0.81,
+        "interruptionCount": 5,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "product_planning",
+    "snapshot": {
+      "sessionId": "seed-planning-003",
+      "title": "Launch scope review",
+      "channel": "seed",
+      "occurredAt": "2026-04-11T09:50:00.000Z",
+      "context": {
+        "rootPath": "D:/Product/Launch Reviews",
+        "branch": "",
+        "platform": "windows"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "Milestone launch checklist", "url": "https://docs.example.com/milestones/q4", "active": true }
+        ],
+        "fileActivity": [
+          { "path": "D:/Product/Launch Reviews/ScopeTradeoffs.md", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "Need one scope cut before launch planning review." }
+        ],
+        "terminalHistory": [],
+        "draftNotes": [
+          { "text": "Clarify backlog movement and milestone ownership." }
+        ],
+        "gitStatus": []
+      },
+      "metrics": {
+        "focusSwitchCount": 4,
+        "pauseRatio": 0.26,
+        "typingBurstScore": 0.29,
+        "interruptionCount": 1,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "product_planning",
+    "snapshot": {
+      "sessionId": "seed-planning-004",
+      "title": "PRD shaping pass",
+      "channel": "seed",
+      "occurredAt": "2026-04-11T11:05:00.000Z",
+      "context": {
+        "rootPath": "D:/Product/PRDs",
+        "branch": "",
+        "platform": "windows"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "PRD structure template", "url": "https://notion.example.com/prd-template", "active": true }
+        ],
+        "fileActivity": [
+          { "path": "D:/Product/PRDs/Notifications-PRD.docx", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "Need clearer product requirements and milestone dependencies." }
+        ],
+        "terminalHistory": [],
+        "draftNotes": [
+          { "text": "Still deciding scope and backlog sequencing for launch." }
+        ],
+        "gitStatus": []
+      },
+      "metrics": {
+        "focusSwitchCount": 5,
+        "pauseRatio": 0.23,
+        "typingBurstScore": 0.28,
+        "interruptionCount": 1,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "job_application",
+    "snapshot": {
+      "sessionId": "seed-job-003",
+      "title": "Resume bullets for backend role",
+      "channel": "seed",
+      "occurredAt": "2026-04-12T13:05:00.000Z",
+      "context": {
+        "rootPath": "D:/Career/Backend Roles",
+        "branch": "",
+        "platform": "windows"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "Backend engineer job description", "url": "https://jobs.example.com/backend", "active": true }
+        ],
+        "fileActivity": [
+          { "path": "D:/Career/Backend Roles/Resume_Backend.pdf", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "Tailor impact bullets to backend reliability and APIs." }
+        ],
+        "terminalHistory": [],
+        "draftNotes": [
+          { "text": "Match project examples to the role requirements before submit." }
+        ],
+        "gitStatus": []
+      },
+      "metrics": {
+        "focusSwitchCount": 3,
+        "pauseRatio": 0.21,
+        "typingBurstScore": 0.22,
+        "interruptionCount": 0,
+        "idleMinutes": 0
+      }
+    }
+  },
+  {
+    "intentId": "job_application",
+    "snapshot": {
+      "sessionId": "seed-job-004",
+      "title": "Final application package review",
+      "channel": "seed",
+      "occurredAt": "2026-04-12T15:00:00.000Z",
+      "context": {
+        "rootPath": "D:/Career/Final Submissions",
+        "branch": "",
+        "platform": "browser"
+      },
+      "traces": {
+        "browserTabs": [
+          { "title": "Lever job application", "url": "https://jobs.lever.co/demo", "active": true }
+        ],
+        "fileActivity": [
+          { "path": "D:/Career/Final Submissions/CoverLetter_Final.docx", "status": "modified" }
+        ],
+        "clipboardFragments": [
+          { "text": "Need final resume filename and cover letter cleanup." }
+        ],
+        "terminalHistory": [],
+        "draftNotes": [
+          { "text": "Double-check application package before submitting." }
+        ],
+        "gitStatus": []
+      },
+      "metrics": {
+        "focusSwitchCount": 2,
+        "pauseRatio": 0.19,
+        "typingBurstScore": 0.17,
+        "interruptionCount": 0,
+        "idleMinutes": 0
+      }
+    }
+  }
+]

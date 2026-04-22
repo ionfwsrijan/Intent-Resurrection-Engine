@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Intent Resurrection Collector",
+  "version": "1.0.0",
+  "description": "Capture live browser tabs and send them to the Intent Resurrection Engine intake workflow.",
+  "permissions": ["tabs", "storage", "alarms"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html"
+}

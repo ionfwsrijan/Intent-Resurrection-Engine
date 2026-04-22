@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Collector Options</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 24px;
+        font-family: "Segoe UI", sans-serif;
+        background: #f8f1e6;
+        color: #1f1913;
+      }
+      main {
+        max-width: 720px;
+      }
+      h1 {
+        margin-top: 0;
+      }
+      label {
+        display: block;
+        margin-top: 14px;
+        font-weight: 600;
+      }
+      input {
+        width: 100%;
+        margin-top: 6px;
+        padding: 12px;
+        border-radius: 14px;
+        border: 1px solid rgba(31, 25, 19, 0.14);
+        font: inherit;
+      }
+      input[type="checkbox"] {
+        width: auto;
+        margin-right: 8px;
+      }
+      button {
+        margin-top: 18px;
+        padding: 12px 16px;
+        border: 0;
+        border-radius: 999px;
+        background: linear-gradient(135deg, #154ef5, #0c318f);
+        color: white;
+        cursor: pointer;
+      }
+      .hint {
+        margin-top: 16px;
+        padding: 14px;
+        border-radius: 16px;
+        background: rgba(11, 138, 125, 0.1);
+      }
+      .toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Intent Resurrection Collector Options</h1>
+      <p>Paste the intake webhook URL and source token issued by the dashboard.</p>
+
+      <label>
+        Intake webhook URL
+        <input id="ingestionUrl" type="url" placeholder="http://localhost:5678/webhook/intent-resurrection-engine/ingest">
+      </label>
+
+      <label>
+        Source token
+        <input id="sourceToken" type="text" placeholder="src_...">
+      </label>
+
+      <label>
+        Session label
+        <input id="sessionLabel" type="text" placeholder="browser-session">
+      </label>
+
+      <label>
+        User label
+        <input id="userLabel" type="text" placeholder="Primary laptop">
+      </label>
+
+      <label>
+        Auto-send interval in minutes
+        <input id="captureIntervalMinutes" type="number" min="1" step="1" value="5">
+      </label>
+
+      <label class="toggle">
+        <input id="autoSend" type="checkbox" checked>
+        Auto-send captures on a schedule
+      </label>
+
+      <label class="toggle">
+        <input id="ignoreNoisyTabs" type="checkbox" checked>
+        Ignore entertainment and chat tabs when possible
+      </label>
+
+      <label class="toggle">
+        <input id="redactUrls" type="checkbox">
+        Private mode for browser URLs
+      </label>
+
+      <label class="toggle">
+        <input id="localOnlyMode" type="checkbox">
+        Local-only mode (send grouped summaries instead of raw tabs)
+      </label>
+
+      <label class="toggle">
+        <input id="includeTabTitles" type="checkbox" checked>
+        Include tab titles
+      </label>
+
+      <label class="toggle">
+        <input id="includeTabUrls" type="checkbox" checked>
+        Include tab URLs
+      </label>
+
+      <label class="toggle">
+        <input id="includeClusters" type="checkbox" checked>
+        Include grouped browser clusters
+      </label>
+
+      <label class="toggle">
+        <input id="includeTimeline" type="checkbox" checked>
+        Include recent tab-switch timeline
+      </label>
+
+      <label>
+        Allowed hosts
+        <input id="allowedHosts" type="text" placeholder="github.com, docs.n8n.io">
+      </label>
+
+      <label>
+        Blocked hosts
+        <input id="blockedHosts" type="text" placeholder="youtube.com, twitch.tv">
+      </label>
+
+      <button id="saveButton" type="button">Save settings</button>
+      <div id="message" class="hint">Settings are stored in browser sync storage.</div>
+    </main>
+    <script src="./options.js"></script>
+  </body>
+</html>

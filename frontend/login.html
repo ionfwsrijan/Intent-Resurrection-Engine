@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Intent Resurrection Engine Login</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <nav class="top-nav">
+        <a class="nav-link active" href="./login.html">Login</a>
+      </nav>
+
+      <main class="dashboard-grid auth-grid">
+        <section class="panel auth-panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Access</p>
+              <h2 id="authTitle">Loading authentication state</h2>
+            </div>
+          </div>
+
+          <p id="authLead" class="lede">Checking whether the app needs its first admin account or a normal sign-in.</p>
+          <p id="authStatus" class="status-banner idle">Waiting for auth state.</p>
+
+          <form id="authForm" class="stack-form">
+            <label id="nameField" class="field hidden-field">
+              <span>Name</span>
+              <input id="authName" type="text" placeholder="Srijan Jaiswal">
+            </label>
+
+            <label class="field">
+              <span>Email</span>
+              <input id="authEmail" type="email" placeholder="you@example.com">
+            </label>
+
+            <label class="field">
+              <span>Password</span>
+              <input id="authPassword" type="password" placeholder="At least 8 characters">
+            </label>
+
+            <div class="button-row">
+              <button id="authSubmitButton" class="primary-button" type="submit">Continue</button>
+            </div>
+          </form>
+        </section>
+      </main>
+    </div>
+
+    <script src="./auth-client.js"></script>
+    <script src="./login.js"></script>
+  </body>
+</html>

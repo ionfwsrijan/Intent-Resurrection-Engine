@@ -1,0 +1,16 @@
+{
+  "name": "intent-resurrection-engine",
+  "private": true,
+  "version": "2.0.0",
+  "description": "Production-shaped n8n-orchestrated intent recovery platform with collectors, persistence, and dashboard.",
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.mjs",
+    "check": "node scripts/run-checks.mjs",
+    "smoke": "node scripts/smoke-test.mjs",
+    "train:model": "node scripts/train-model.mjs",
+    "test:api": "node scripts/api-test.mjs",
+    "test:frontend": "node scripts/frontend-test.mjs",
+    "test": "node scripts/frontend-test.mjs && node scripts/api-test.mjs"
+  }
+}

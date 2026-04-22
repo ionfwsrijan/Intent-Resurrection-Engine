@@ -1,0 +1,145 @@
+[
+  {
+    "id": "client_pitch_pricing",
+    "label": "Client pitch and pricing preparation",
+    "recoveryFocus": "pricing deltas, deck completion, and commercial framing",
+    "keywords": ["pricing", "renewal", "deck", "slides", "discount", "margin", "quote", "proposal", "spend", "calculator", "forecast"],
+    "phrases": ["pricing calculator", "cost breakdown", "renewal deck", "executive summary", "customer ask"],
+    "fieldWeights": {
+      "browserTabs": 1.4,
+      "draftNotes": 1.35,
+      "clipboardFragments": 1.15,
+      "fileActivity": 1.5,
+      "terminalHistory": 0.8,
+      "gitStatus": 0.7
+    },
+    "behaviorBoosts": {
+      "focusSwitchCount": 0.08,
+      "pauseRatio": 0.3
+    },
+    "nextSteps": [
+      "Re-open the pricing, proposal, and presentation materials with the strongest commercial context first.",
+      "Capture the missing pricing deltas and translate them into a single customer-facing summary.",
+      "Finish the renamed deck or proposal asset before reopening lower-priority tabs."
+    ]
+  },
+  {
+    "id": "auth_debugging",
+    "label": "Authentication or token debugging",
+    "recoveryFocus": "expiry handling, refresh flows, and session verification",
+    "keywords": ["auth", "token", "jwt", "refresh", "expiry", "401", "session", "bearer", "oauth", "cookie", "login"],
+    "phrases": ["invalid token", "refresh token", "session expiry", "authorization header"],
+    "fieldWeights": {
+      "browserTabs": 1.1,
+      "draftNotes": 1.25,
+      "clipboardFragments": 1.25,
+      "fileActivity": 1.2,
+      "terminalHistory": 1.55,
+      "gitStatus": 1.0
+    },
+    "behaviorBoosts": {
+      "typingBurstScore": 0.8,
+      "interruptionCount": 0.18
+    },
+    "nextSteps": [
+      "Replay the failing auth path with the same token refresh sequence and compare expiry timestamps.",
+      "Inspect the modified auth files and terminal commands to isolate the refresh or session handoff bug.",
+      "Patch the narrowest auth boundary first, then rerun the affected login or token tests."
+    ]
+  },
+  {
+    "id": "research_review",
+    "label": "Literature review or research synthesis",
+    "recoveryFocus": "paper comparison, citation completion, and synthesis writing",
+    "keywords": ["paper", "research", "study", "citation", "arxiv", "scholar", "literature", "bibliography", "related", "method"],
+    "phrases": ["related work", "literature review", "google scholar", "comparison table"],
+    "fieldWeights": {
+      "browserTabs": 1.45,
+      "draftNotes": 1.4,
+      "clipboardFragments": 1.0,
+      "fileActivity": 1.15,
+      "terminalHistory": 0.75,
+      "gitStatus": 0.6
+    },
+    "behaviorBoosts": {
+      "pauseRatio": 0.9
+    },
+    "nextSteps": [
+      "Group the open papers by method or claim before writing any new prose.",
+      "Turn the strongest note fragments into a synthesis paragraph while the comparison context is still fresh.",
+      "Finish the missing citations or bibliography entries before reopening unrelated tabs."
+    ]
+  },
+  {
+    "id": "incident_response",
+    "label": "Release triage or incident response",
+    "recoveryFocus": "containment, rollback checks, and operational sequencing",
+    "keywords": ["incident", "rollback", "deploy", "release", "hotfix", "latency", "outage", "postmortem", "alert", "degraded"],
+    "phrases": ["incident timeline", "rollback now", "service degraded", "production alert"],
+    "fieldWeights": {
+      "browserTabs": 1.0,
+      "draftNotes": 1.2,
+      "clipboardFragments": 1.05,
+      "fileActivity": 1.1,
+      "terminalHistory": 1.45,
+      "gitStatus": 1.3
+    },
+    "behaviorBoosts": {
+      "interruptionCount": 0.25,
+      "focusSwitchCount": 0.12,
+      "typingBurstScore": 0.55
+    },
+    "nextSteps": [
+      "Rebuild the incident timeline from the latest commands, branches, and notes before making new changes.",
+      "Confirm the rollback or mitigation path against the current branch and modified files.",
+      "Write a short containment summary and decide the next operational check."
+    ]
+  },
+  {
+    "id": "product_planning",
+    "label": "Product planning or roadmap shaping",
+    "recoveryFocus": "scope decisions, milestone shaping, and backlog movement",
+    "keywords": ["roadmap", "backlog", "spec", "prd", "scope", "feature", "milestone", "planning", "requirement", "launch"],
+    "phrases": ["product requirements", "launch plan", "backlog grooming", "feature scope"],
+    "fieldWeights": {
+      "browserTabs": 1.15,
+      "draftNotes": 1.5,
+      "clipboardFragments": 1.1,
+      "fileActivity": 1.2,
+      "terminalHistory": 0.55,
+      "gitStatus": 0.5
+    },
+    "behaviorBoosts": {
+      "pauseRatio": 0.45,
+      "focusSwitchCount": 0.05
+    },
+    "nextSteps": [
+      "Re-open the highest-signal planning notes and identify the unresolved scope decision.",
+      "Translate the latest notes into milestone or backlog updates before adding new detail.",
+      "Document the core tradeoff in one place so the session can resume cleanly later."
+    ]
+  },
+  {
+    "id": "job_application",
+    "label": "Job application packaging",
+    "recoveryFocus": "resume tailoring, role matching, and submission readiness",
+    "keywords": ["resume", "cv", "application", "candidate", "cover", "job", "role", "interview", "portfolio", "shortlist"],
+    "phrases": ["cover letter", "job description", "tailor resume", "application form"],
+    "fieldWeights": {
+      "browserTabs": 1.3,
+      "draftNotes": 1.35,
+      "clipboardFragments": 1.15,
+      "fileActivity": 1.3,
+      "terminalHistory": 0.4,
+      "gitStatus": 0.3
+    },
+    "behaviorBoosts": {
+      "pauseRatio": 0.4
+    },
+    "nextSteps": [
+      "Match the latest role requirements against the modified resume or cover letter assets.",
+      "Finish the role-specific bullets or paragraphs before switching to lower-priority forms.",
+      "Double-check the final attachment names and submission readiness."
+    ]
+  }
+]

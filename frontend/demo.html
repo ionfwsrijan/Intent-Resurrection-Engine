@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Intent Resurrection Engine Demo Mode</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <nav class="top-nav">
+        <a class="nav-link" href="./index.html">Dashboard</a>
+        <a class="nav-link" href="./analytics.html">Analytics Lab</a>
+        <a class="nav-link active" href="./demo.html">Demo Mode</a>
+      </nav>
+
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Presentation-ready walkthrough</p>
+          <h1>Demo Mode</h1>
+          <p class="lede">
+            Cycle through pinned or recent sessions in a clean presentation view to show prediction, evidence, and recovery guidance without the setup controls.
+          </p>
+        </div>
+        <div class="hero-stack">
+          <article class="hero-card accent">
+            <p class="label">Presenter tip</p>
+            <strong>Pin the sessions you want to show in order, then use this page to walk judges through the story.</strong>
+          </article>
+        </div>
+      </header>
+
+      <main class="dashboard-grid">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Session Queue</p>
+              <h2>Presentation order</h2>
+            </div>
+            <div class="button-row">
+              <button id="previousSessionButton" class="ghost-button" type="button">Previous</button>
+              <button id="nextSessionButton" class="primary-button" type="button">Next</button>
+            </div>
+          </div>
+          <div id="demoSessionQueue" class="session-list"></div>
+        </section>
+
+        <section class="panel panel-tall">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Selected Story</p>
+              <h2 id="demoSessionTitle">No session selected</h2>
+            </div>
+          </div>
+
+          <article class="highlight-card">
+            <p class="label">Predicted intent</p>
+            <h3 id="demoIntent">Waiting for session data</h3>
+            <p id="demoConfidence" class="subtle-copy">Select a session to start demo mode.</p>
+          </article>
+
+          <div class="detail-grid">
+            <article class="detail-card">
+              <p class="label">Evidence</p>
+              <ul id="demoEvidence" class="bullet-list">
+                <li>No evidence yet.</li>
+              </ul>
+            </article>
+            <article class="detail-card">
+              <p class="label">Next steps</p>
+              <ol id="demoNextSteps" class="bullet-list ordered">
+                <li>No guidance yet.</li>
+              </ol>
+            </article>
+          </div>
+
+          <div class="detail-grid">
+            <article class="detail-card">
+              <p class="label">Privacy summary</p>
+              <p id="demoPrivacy">No session selected.</p>
+            </article>
+            <article class="detail-card">
+              <p class="label">Temporal continuity</p>
+              <p id="demoTemporal">No recent history available.</p>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./auth-client.js"></script>
+    <script src="./demo.js"></script>
+  </body>
+</html>

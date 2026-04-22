@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Intent Resurrection Engine</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <nav class="top-nav">
+        <a class="nav-link active" href="./index.html">Dashboard</a>
+        <a class="nav-link" href="./analytics.html">Analytics Lab</a>
+        <a class="nav-link" href="./demo.html">Demo Mode</a>
+      </nav>
+
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Live context recovery platform</p>
+          <h1>Intent Resurrection Engine</h1>
+          <p class="lede">
+            Register real collectors, ingest live work traces through n8n, and recover the task a user abandoned before context disappears.
+          </p>
+        </div>
+        <div class="hero-stack">
+          <article class="hero-card">
+            <p class="label">Collector flow</p>
+            <strong>Collectors -> n8n -> backend -> analysis -> recovery guidance</strong>
+          </article>
+          <article class="hero-card accent">
+            <p class="label">Notification model</p>
+            <strong>Stale sessions can dispatch to a workspace webhook with evidence and next steps.</strong>
+          </article>
+        </div>
+      </header>
+
+      <section class="metric-row">
+        <article class="metric-card">
+          <span>Workspaces</span>
+          <strong id="metricWorkspaces">0</strong>
+        </article>
+        <article class="metric-card">
+          <span>Sources</span>
+          <strong id="metricSources">0</strong>
+        </article>
+        <article class="metric-card">
+          <span>Active Sessions</span>
+          <strong id="metricActiveSessions">0</strong>
+        </article>
+        <article class="metric-card">
+          <span>Stale Sessions</span>
+          <strong id="metricStaleSessions">0</strong>
+        </article>
+        <article class="metric-card">
+          <span>Analyses</span>
+          <strong id="metricAnalyses">0</strong>
+        </article>
+        <article class="metric-card">
+          <span>Pinned Sessions</span>
+          <strong id="metricPinnedSessions">0</strong>
+        </article>
+      </section>
+
+      <section class="panel panel-wide">
+        <div class="panel-header">
+          <div>
+            <p class="section-kicker">Analytics</p>
+            <h2>Confidence, drift, sources, and model health</h2>
+          </div>
+        </div>
+
+        <div class="detail-grid analytics-grid">
+          <article class="detail-card">
+            <p class="label">Confidence trend</p>
+            <div id="analyticsConfidenceTrend" class="chart-stack"></div>
+          </article>
+          <article class="detail-card">
+            <p class="label">Intent timeline</p>
+            <div id="analyticsIntentTimeline" class="timeline-list"></div>
+          </article>
+          <article class="detail-card">
+            <p class="label">Source mix</p>
+            <div id="analyticsSourceMix" class="chart-stack"></div>
+          </article>
+          <article class="detail-card">
+            <p class="label">Model health</p>
+            <ul id="analyticsModelStatus" class="bullet-list">
+              <li>Loading model status...</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <main class="dashboard-grid">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Workspace Registry</p>
+              <h2>Create or update a workspace</h2>
+            </div>
+            <button id="workspaceResetButton" class="ghost-button" type="button">New workspace</button>
+          </div>
+
+          <form id="workspaceForm" class="stack-form">
+            <input id="workspaceId" type="hidden">
+
+            <label class="field">
+              <span>Name</span>
+              <input id="workspaceName" type="text" placeholder="Platform Operations">
+            </label>
+
+            <label class="field">
+              <span>Workspace Path</span>
+              <input id="workspaceRootPath" type="text" placeholder="D:\Work\platform-ops">
+            </label>
+
+            <label class="field">
+              <span>Description</span>
+              <textarea id="workspaceDescription" rows="3" placeholder="Operational or product context this workspace represents"></textarea>
+            </label>
+
+            <label class="field">
+              <span>Notification destination</span>
+              <input id="workspaceNotificationWebhook" type="text" placeholder="slack:https://hooks.slack.com/... or discord:https://discord.com/... or email:team@example.com">
+            </label>
+
+            <label class="field">
+              <span>Digest minutes</span>
+              <input id="workspaceNotificationDigestMinutes" type="number" min="0" step="5" placeholder="0 for immediate, 30 or 60 for digests">
+            </label>
+
+            <div class="filter-grid">
+              <label class="field">
+                <span>Quiet hours start</span>
+                <input id="workspaceNotificationQuietStart" type="text" placeholder="22:00">
+              </label>
+              <label class="field">
+                <span>Quiet hours end</span>
+                <input id="workspaceNotificationQuietEnd" type="text" placeholder="08:00">
+              </label>
+            </div>
+
+            <div class="field">
+              <span>Notification intent filters</span>
+              <div id="workspaceNotificationIntentIds" class="chip-grid"></div>
+            </div>
+
+            <label class="field">
+              <span>Minimum idle minutes before notify</span>
+              <input id="workspaceNotificationMinIdleMinutes" type="number" min="0" step="5" placeholder="60">
+            </label>
+
+            <div class="button-row">
+              <button class="primary-button" type="submit">Save workspace</button>
+            </div>
+          </form>
+
+          <div id="workspaceList" class="card-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Source Provisioning</p>
+              <h2>Register a live collector</h2>
+            </div>
+          </div>
+
+          <form id="sourceForm" class="stack-form">
+            <label class="field">
+              <span>Workspace</span>
+              <select id="sourceWorkspaceId"></select>
+            </label>
+
+            <label class="field">
+              <span>Source Type</span>
+              <select id="sourceType">
+                <option value="browser-extension">Browser Extension</option>
+                <option value="windows-workspace-collector">Windows Workspace Collector</option>
+                <option value="manual-api">Manual API Client</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Source Name</span>
+              <input id="sourceName" type="text" placeholder="Primary laptop browser">
+            </label>
+
+            <div class="button-row">
+              <button class="primary-button" type="submit">Create source token</button>
+            </div>
+          </form>
+
+          <article id="sourceCredentialCard" class="credential-card empty">
+            <p class="label">Collector credentials</p>
+            <div id="sourceCredentialBody">Create a source to receive the one-time token and collector instructions.</div>
+          </article>
+
+          <div id="sourceList" class="card-list compact"></div>
+        </section>
+
+        <section class="panel panel-wide">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Ingestion Console</p>
+              <h2>Send a real snapshot through the intake pipeline</h2>
+            </div>
+          </div>
+
+          <form id="ingestionForm" class="stack-form">
+            <label class="field">
+              <span>Source Token</span>
+              <input id="ingestionSourceToken" type="text" placeholder="Paste the source token issued above">
+            </label>
+
+            <label class="field">
+              <span>Snapshot JSON File</span>
+              <input id="snapshotFile" type="file" accept=".json,application/json">
+            </label>
+
+            <label class="field">
+              <span>Snapshot JSON</span>
+              <textarea id="snapshotJson" rows="12" placeholder='{"sessionId":"...","traces":{"browserTabs":[]}}'></textarea>
+            </label>
+
+            <div class="button-row">
+              <button class="primary-button" type="submit">Send through pipeline</button>
+            </div>
+          </form>
+
+          <div class="detail-card tool-card">
+            <p class="label">Session bundle tools</p>
+            <div class="stack-form">
+              <label class="field">
+                <span>Import bundle file</span>
+                <input id="bundleFile" type="file" accept=".json,application/json">
+              </label>
+              <label class="field">
+                <span>Target workspace for import</span>
+                <select id="bundleWorkspaceId"></select>
+              </label>
+              <label class="toggle-line">
+                <input id="bundleOverwrite" type="checkbox">
+                Overwrite matching session IDs on import
+              </label>
+              <div class="button-row">
+                <button id="importBundleButton" class="ghost-button" type="button">Import bundle</button>
+                <button id="exportBundleButton" class="ghost-button" type="button">Export all sessions</button>
+              </div>
+            </div>
+          </div>
+
+          <p id="pipelineStatus" class="status-banner idle">Waiting for a collector payload.</p>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Collector Setup</p>
+              <h2>Operational wiring</h2>
+            </div>
+          </div>
+
+          <div class="setup-grid">
+            <article class="setup-card">
+              <p class="label">Public intake webhook</p>
+              <pre id="ingestionWebhookUrl" class="code-block">Not configured</pre>
+            </article>
+            <article class="setup-card">
+              <p class="label">Stale-session monitor webhook</p>
+              <pre id="staleWebhookUrl" class="code-block">Not configured</pre>
+            </article>
+            <article class="setup-card full-width">
+              <p class="label">Windows collector command</p>
+              <pre id="collectorCommand" class="code-block">Create a source to generate a usable command.</pre>
+            </article>
+            <article class="setup-card full-width">
+              <p class="label">Collector signal controls</p>
+              <div class="filter-grid">
+                <label class="toggle-line"><input id="collectorIncludeClipboard" type="checkbox" checked>Include clipboard</label>
+                <label class="toggle-line"><input id="collectorIncludeTerminal" type="checkbox" checked>Include terminal history</label>
+                <label class="toggle-line"><input id="collectorIncludeNotes" type="checkbox" checked>Include note excerpts</label>
+                <label class="toggle-line"><input id="collectorIncludeGitStatus" type="checkbox" checked>Include git status</label>
+                <label class="toggle-line"><input id="collectorIncludeAppFocus" type="checkbox" checked>Include active window focus</label>
+                <label class="toggle-line"><input id="collectorLocalOnlyMode" type="checkbox">Local-only summary mode</label>
+              </div>
+              <label class="field">
+                <span>Preferred file extensions</span>
+                <input id="collectorExtensions" type="text" value="pptx,pdf,docx" placeholder="pptx,pdf,docx">
+              </label>
+            </article>
+            <article class="setup-card full-width">
+              <p class="label">Browser extension notes</p>
+              <div id="extensionSetup" class="setup-copy">
+                Load the unpacked extension from <code>collectors/browser-extension</code>, then paste the intake URL and source token in its options screen.
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Sessions</p>
+              <h2>Recent work contexts</h2>
+            </div>
+          </div>
+
+          <div class="filter-grid">
+            <label class="field">
+              <span>Search</span>
+              <input id="sessionSearch" type="text" placeholder="Search title, summary, evidence">
+            </label>
+            <label class="field">
+              <span>Status</span>
+              <select id="sessionStatusFilter">
+                <option value="all">All statuses</option>
+                <option value="active">Active</option>
+                <option value="stale">Stale</option>
+                <option value="resolved">Resolved</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Channel</span>
+              <select id="sessionChannelFilter">
+                <option value="all">All channels</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Intent</span>
+              <select id="sessionIntentFilter">
+                <option value="all">All intents</option>
+              </select>
+            </label>
+          </div>
+
+          <div id="sessionList" class="session-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Evaluation</p>
+              <h2>Feedback and benchmark summary</h2>
+            </div>
+          </div>
+
+          <div class="detail-grid">
+            <article class="detail-card">
+              <p class="label">Evaluation metrics</p>
+              <ul id="evaluationMetrics" class="bullet-list">
+                <li>No labeled sessions yet.</li>
+              </ul>
+            </article>
+            <article class="detail-card">
+              <p class="label">Recent labeled examples</p>
+              <ul id="evaluationExamples" class="bullet-list">
+                <li>No evaluation examples yet.</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel panel-tall">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Analysis Detail</p>
+              <h2>Selected session</h2>
+            </div>
+            <div class="button-row tight">
+              <button id="rerunAnalysisButton" class="ghost-button" type="button">Run analysis</button>
+              <button id="resolveSessionButton" class="ghost-button" type="button">Mark resolved</button>
+              <button id="pinSessionButton" class="ghost-button" type="button">Pin session</button>
+              <button id="markCorrectButton" class="ghost-button" type="button">Mark correct</button>
+              <button id="deleteSessionButton" class="ghost-button danger" type="button">Delete session</button>
+            </div>
+          </div>
+
+          <article class="highlight-card">
+            <p class="label">Predicted intent</p>
+            <h3 id="detailIntent">No session selected</h3>
+            <p id="detailConfidence" class="subtle-copy">Select a session to inspect its latest analysis.</p>
+          </article>
+
+          <div class="detail-grid">
+            <article class="detail-card">
+              <p class="label">Evidence</p>
+              <ul id="detailEvidence" class="bullet-list">
+                <li>Evidence appears when a session is selected.</li>
+              </ul>
+            </article>
+            <article class="detail-card">
+              <p class="label">Next steps</p>
+              <ol id="detailNextSteps" class="bullet-list ordered">
+                <li>Recommendations appear when a session is selected.</li>
+              </ol>
+            </article>
+          </div>
+
+          <div class="detail-grid">
+            <article class="detail-card">
+              <p class="label">Privacy summary</p>
+              <p id="detailPrivacy">No session selected.</p>
+            </article>
+            <article class="detail-card">
+              <p class="label">Trace summary</p>
+              <ul id="detailTraceSummary" class="bullet-list">
+                <li>No session selected.</li>
+              </ul>
+            </article>
+          </div>
+
+          <div class="detail-grid">
+            <article class="detail-card">
+              <p class="label">Confidence calibration</p>
+              <p id="detailCalibration">No session selected.</p>
+            </article>
+            <article class="detail-card">
+              <p class="label">Browser clusters</p>
+              <ul id="detailClusters" class="bullet-list">
+                <li>No browser clusters available.</li>
+              </ul>
+            </article>
+          </div>
+
+          <div class="detail-grid">
+            <article class="detail-card">
+              <p class="label">Comparison with previous analysis</p>
+              <ul id="comparisonSummary" class="bullet-list">
+                <li>No comparison available yet.</li>
+              </ul>
+            </article>
+            <article class="detail-card">
+              <p class="label">Timeline of recent captures</p>
+              <ul id="detailTimeline" class="bullet-list">
+                <li>No timeline available yet.</li>
+              </ul>
+            </article>
+          </div>
+
+          <div class="detail-grid">
+            <article class="detail-card">
+              <p class="label">Feedback loop</p>
+              <label class="field">
+                <span>Verdict</span>
+                <select id="feedbackVerdict">
+                  <option value="correct">Correct</option>
+                  <option value="partial">Partially correct</option>
+                  <option value="wrong">Wrong</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Confirmed intent</span>
+                <select id="feedbackIntentId">
+                  <option value="">Use predicted intent</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Note</span>
+                <textarea id="feedbackNote" rows="3" placeholder="Explain what was right, wrong, or missing"></textarea>
+              </label>
+              <div class="button-row">
+                <button id="submitFeedbackButton" class="ghost-button" type="button">Save feedback</button>
+              </div>
+              <p id="feedbackHistory" class="support-copy">No feedback saved for this session yet.</p>
+            </article>
+          </div>
+
+          <article class="detail-card">
+            <p class="label">Sanitized snapshot preview</p>
+            <pre id="detailJson" class="json-viewer">{
+  "status": "idle"
+}</pre>
+          </article>
+        </section>
+      </main>
+    </div>
+
+    <script src="./auth-client.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

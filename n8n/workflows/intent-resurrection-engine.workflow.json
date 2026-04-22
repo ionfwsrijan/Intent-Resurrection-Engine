@@ -1,0 +1,86 @@
+{
+  "name": "Intent Resurrection Engine Intake",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "intent-resurrection-engine/ingest",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "d4b52d48-3c91-4f31-b0ce-56cb79d9ecab",
+      "name": "Collector Intake Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [220, 320],
+      "webhookId": "intent-resurrection-engine-ingest"
+    },
+    {
+      "parameters": {
+        "jsCode": "const incoming = $input.first().json;\nconst payload = incoming.body ?? incoming;\nconst headers = incoming.headers ?? {};\nconst sourceToken = headers['x-source-token'] || headers['X-Source-Token'] || payload.sourceToken || '';\n\nreturn [{\n  json: {\n    sourceToken,\n    payload\n  }\n}];"
+      },
+      "id": "f53b3446-97b8-42d6-b09d-756d2dc993af",
+      "name": "Normalize Intake Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\n\nconst ingestion = await this.helpers.httpRequest({\n  method: 'POST',\n  url: 'http://app:3000/api/v1/ingestion/session',\n  headers: {\n    'Content-Type': 'application/json',\n    'X-Source-Token': item.sourceToken,\n  },\n  body: item.payload,\n  json: true,\n});\n\nreturn [{ json: { ...item, ingestion } }];"
+      },
+      "id": "a66b0716-2b86-4eb4-af98-aa9fc18d6bf7",
+      "name": "Persist Session Snapshot",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst sessionId = item.ingestion.session.id;\n\nconst analysisResponse = await this.helpers.httpRequest({\n  method: 'POST',\n  url: 'http://app:3000/api/v1/analysis/run',\n  headers: {\n    'Content-Type': 'application/json',\n  },\n  body: {\n    sessionId,\n  },\n  json: true,\n});\n\nreturn [{\n  json: {\n    sessionId,\n    ingestion: item.ingestion,\n    analysis: analysisResponse.analysis,\n  }\n}];"
+      },
+      "id": "c1f0934b-9508-4711-aa0f-137cb9b550c1",
+      "name": "Run Backend Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1060, 320]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "b7ef9ea2-6e62-4d97-bbbb-43f5072bc52b",
+      "name": "Respond To Collector",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [1320, 320]
+    }
+  ],
+  "connections": {
+    "Collector Intake Webhook": {
+      "main": [[{ "node": "Normalize Intake Request", "type": "main", "index": 0 }]]
+    },
+    "Normalize Intake Request": {
+      "main": [[{ "node": "Persist Session Snapshot", "type": "main", "index": 0 }]]
+    },
+    "Persist Session Snapshot": {
+      "main": [[{ "node": "Run Backend Analysis", "type": "main", "index": 0 }]]
+    },
+    "Run Backend Analysis": {
+      "main": [[{ "node": "Respond To Collector", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "settings": {},
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "versionId": "3f43be2d-bc4d-45a5-b7b5-b5e7c52ea0a0",
+  "active": false,
+  "tags": []
+}

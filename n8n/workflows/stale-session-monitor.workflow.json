@@ -1,0 +1,72 @@
+{
+  "name": "Intent Resurrection Engine Stale Session Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "02e7897c-e8fe-4bcf-a20f-b849ea3350c0",
+      "name": "Every 30 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = await this.helpers.httpRequest({\n  method: 'POST',\n  url: 'http://app:3000/api/v1/automations/stale-sessions',\n  headers: {\n    'Content-Type': 'application/json',\n  },\n  body: {\n    idleMinutes: 60,\n  },\n  json: true,\n});\n\nreturn [{ json: { createdNotifications: payload.notifications.length } }];"
+      },
+      "id": "72984ef4-afb5-45bb-9ddf-81d1c7f22d25",
+      "name": "Create Pending Notifications",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [520, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = await this.helpers.httpRequest({\n  method: 'POST',\n  url: 'http://app:3000/api/v1/notifications/dispatch-ready',\n  headers: {\n    'Content-Type': 'application/json',\n  },\n  body: {},\n  json: true,\n});\n\nreturn [{ json: payload }];"
+      },
+      "id": "b184ae6c-4da1-4db9-8990-63d3475dc7ad",
+      "name": "Dispatch Adapters and Digests",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [820, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { delivered: $input.first().json.delivered || 0, failed: $input.first().json.failed || 0, batches: $input.first().json.batches || [] } }];"
+      },
+      "id": "8d2d26db-bdb9-4d82-b0bb-bf351033c212",
+      "name": "Summarize Dispatch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 320]
+    }
+  ],
+  "connections": {
+    "Every 30 Minutes": {
+      "main": [[{ "node": "Create Pending Notifications", "type": "main", "index": 0 }]]
+    },
+    "Create Pending Notifications": {
+      "main": [[{ "node": "Dispatch Adapters and Digests", "type": "main", "index": 0 }]]
+    },
+    "Dispatch Adapters and Digests": {
+      "main": [[{ "node": "Summarize Dispatch", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "settings": {},
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "versionId": "5d868d38-baf7-4f62-a512-c598267c40b3",
+  "active": false,
+  "tags": []
+}

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Intent Resurrection Engine Analytics</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <nav class="top-nav">
+        <a class="nav-link" href="./index.html">Dashboard</a>
+        <a class="nav-link active" href="./analytics.html">Analytics Lab</a>
+        <a class="nav-link" href="./demo.html">Demo Mode</a>
+      </nav>
+
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Evaluation and reliability</p>
+          <h1>Analytics Lab</h1>
+          <p class="lede">
+            Run stored benchmarks, inspect model calibration, review confusion patterns, and audit notification delivery behavior from one screen.
+          </p>
+        </div>
+        <div class="hero-stack">
+          <article class="hero-card">
+            <p class="label">Model version</p>
+            <strong id="modelVersion">Loading...</strong>
+          </article>
+          <article class="hero-card accent">
+            <p class="label">Benchmark controls</p>
+            <strong>Run a fresh benchmark over seed and labeled sessions whenever you update the scoring pipeline.</strong>
+          </article>
+        </div>
+      </header>
+
+      <main class="dashboard-grid">
+        <section class="panel panel-wide">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Benchmarking</p>
+              <h2>Model run comparison</h2>
+            </div>
+            <div class="button-row">
+              <button id="trainModelButton" class="ghost-button" type="button">Train model</button>
+              <button id="runBenchmarkButton" class="primary-button" type="button">Run benchmark</button>
+              <button id="exportMarkdownButton" class="ghost-button" type="button">Export report</button>
+              <button id="exportCsvButton" class="ghost-button" type="button">Export sessions CSV</button>
+            </div>
+          </div>
+          <p id="benchmarkStatus" class="status-banner idle">Waiting for benchmark run.</p>
+          <div id="benchmarkRuns" class="detail-grid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Confusion Matrix</p>
+              <h2>Labeled prediction drift</h2>
+            </div>
+          </div>
+          <div id="confusionMatrix" class="table-wrap"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Calibration</p>
+              <h2>Confidence buckets</h2>
+            </div>
+          </div>
+          <div id="calibrationBuckets" class="chart-stack"></div>
+        </section>
+
+        <section class="panel panel-wide">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Notification Delivery</p>
+              <h2>Recent delivery log</h2>
+            </div>
+          </div>
+          <div id="notificationLogs" class="table-wrap"></div>
+        </section>
+
+        <section class="panel panel-wide">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Session Timeline Depth</p>
+              <h2>Temporal evidence coverage</h2>
+            </div>
+          </div>
+          <div id="timelineCoverage" class="detail-grid"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./auth-client.js"></script>
+    <script src="./analytics.js"></script>
+  </body>
+</html>
