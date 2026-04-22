@@ -450,18 +450,22 @@ function solveLocal(query) {
   return "";
 }
 
-async function callOpenAI(apiKey, messages, model) {
+async function callOpenAI(apiKey, messages, model, jsonMode) {
+  const body = {
+    model: model || "gpt-4o",
+    temperature: 0,
+    messages: messages,
+  };
+  if (jsonMode) {
+    body.response_format = { type: "json_object" };
+  }
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: "Bearer " + apiKey,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model: model || "gpt-4o",
-      temperature: 0,
-      messages: messages,
-    }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const errText = await res.text();
@@ -495,73 +499,120 @@ async function solveWithLlm(query, assets = []) {
   const context = assetContext ? assetContext + "\n\n" : "";
   const fullQuestion = context + String(query);
 
-  // Step 1: Reason through the answer (chain-of-thought)
-  const reasoningPrompt =
-    "You are a careful reasoning engine. Solve the following question step by step, showing your work. " +
-    "At the very end of your response, write a line that says exactly: FINAL_ANSWER: <answer> " +
-    "where <answer> is the bare answer value with no extra words. " +
-    "For names: just the name. For numbers: just the number. For lists: comma-space separated values. For yes/no: YES or NO.";
-
-  const reasoningResult = await callOpenAI(
-    apiKey,
-    [
-      { role: "system", content: reasoningPrompt },
-      { role: "user", content: fullQuestion },
-    ],
-    process.env.OPENAI_MODEL || "gpt-4o",
-  );
-
-  // Extract FINAL_ANSWER from reasoning
-  const finalMatch = reasoningResult.match(/FINAL_ANSWER:\s*(.+)$/m);
-  if (finalMatch) {
-    const extracted = finalMatch[1].trim();
-
-    // Step 2: Clean/normalize the extracted answer
-    const cleanPrompt = [
-      "You are a formatter. The user gives you a raw answer value. You must output it in the cleanest possible form.",
-      "Rules:",
-      "- If it is a person name or item name: output just the name, capitalized correctly",
-      "- If it is a number: output just the number (e.g. 42 or 3.5), no units unless they were in the original question",
-      "- If it is a list: output comma-space separated (e.g. Alice, Bob, Carol or 1, 3, 5)",
-      "- If it is YES or NO: output exactly YES or NO",
-      "- If it is a string result: output just the string",
-      "- Strip any surrounding quotes, brackets, markdown",
-      "- Output NOTHING except the clean answer",
-    ].join("\n");
-
-    const cleaned = await callOpenAI(
-      apiKey,
-      [
-        { role: "system", content: cleanPrompt },
-        { role: "user", content: extracted },
-      ],
-      process.env.OPENAI_MODEL || "gpt-4o",
-    );
-
-    return cleaned.trim();
-  }
-
-  // Fallback: if no FINAL_ANSWER tag found, do a direct single-shot call
-  const fallbackPrompt = [
-    "You are an exact answer engine. Output ONLY the bare answer — no explanation, no labels, no intro.",
-    "- WHO questions: just the name",
-    "- WHICH questions: just the item name",
-    "- Number questions: just the number",
-    "- List questions: comma-space separated",
-    "- YES/NO questions: YES or NO",
-    "- String operations: just the result string",
+  const systemPrompt = [
+    "You are a precise answer engine. Respond with a JSON object with two fields: reasoning (string) and answer (string).",
+    "",
+    "ANSWER FIELD MUST CONTAIN ONLY THE BARE VALUE — nothing else. Study every example below:",
+    "",
+    "--- COMPARISON (WHO/WHICH is highest/lowest/best/worst/most/least) ---",
+    "Q: Alice scored 80, Bob scored 90. Who scored highest?",
+    "A: {reasoning: Bob=90 > Alice=80, answer: Bob}",
+    "Q: Alice scored 80, Bob scored 90. Who scored lowest?",
+    "A: {reasoning: Alice=80 < Bob=90, answer: Alice}",
+    "Q: Tom is 25, Sara is 30, Mike is 22. Who is oldest?",
+    "A: {reasoning: Sara=30 is largest, answer: Sara}",
+    "Q: Tom is 25, Sara is 30, Mike is 22. Who is youngest?",
+    "A: {reasoning: Mike=22 is smallest, answer: Mike}",
+    "Q: Tom is 25, Sara is 30, Mike is 22. What is the average age?",
+    "A: {reasoning: (25+30+22)/3=77/3=25.67, answer: 25.67}",
+    "Q: Tom is 25, Sara is 30, Mike is 22. What is the age difference between oldest and youngest?",
+    "A: {reasoning: 30-22=8, answer: 8}",
+    "Q: Alice scored 80, Bob scored 90, Carol scored 70. Rank highest to lowest.",
+    "A: {reasoning: Bob=90, Alice=80, Carol=70, answer: Bob, Alice, Carol}",
+    "Q: Alice scored 80, Bob scored 90, Carol scored 70. Rank lowest to highest.",
+    "A: {reasoning: Carol=70, Alice=80, Bob=90, answer: Carol, Alice, Bob}",
+    "Q: Red costs 5, Blue costs 3, Green costs 7. Which is cheapest?",
+    "A: {reasoning: Blue=3 is smallest, answer: Blue}",
+    "Q: Red costs 5, Blue costs 3, Green costs 7. Which is most expensive?",
+    "A: {reasoning: Green=7 is largest, answer: Green}",
+    "Q: Red costs 5, Blue costs 3, Green costs 7. Total cost?",
+    "A: {reasoning: 5+3+7=15, answer: 15}",
+    "Q: Alice ran 5km, Bob ran 3km, Carol ran 7km. Who ran the most?",
+    "A: {reasoning: Carol=7 is largest, answer: Carol}",
+    "Q: Alice ran 5km, Bob ran 3km, Carol ran 7km. Who ran the least?",
+    "A: {reasoning: Bob=3 is smallest, answer: Bob}",
+    "Q: Alice ran 5km, Bob ran 3km, Carol ran 7km. How far did they run in total?",
+    "A: {reasoning: 5+3+7=15, answer: 15}",
+    "Q: A=10, B=20, C=15. Which variable has the highest value?",
+    "A: {reasoning: B=20 is largest, answer: B}",
+    "Q: A=10, B=20, C=15. Which variable has the lowest value?",
+    "A: {reasoning: A=10 is smallest, answer: A}",
+    "Q: Item X weighs 5kg, Item Y weighs 8kg, Item Z weighs 3kg. Which is heaviest?",
+    "A: {reasoning: Y=8 is largest, answer: Y}",
+    "",
+    "--- WORD PROBLEMS ---",
+    "Q: John has 10 apples and gives 3 to Mary. How many does John have?",
+    "A: {reasoning: 10-3=7, answer: 7}",
+    "Q: A train travels 60mph for 2 hours. How far does it travel?",
+    "A: {reasoning: 60*2=120, answer: 120}",
+    "Q: A product costs 50 and has 20% discount. What is the final price?",
+    "A: {reasoning: 50*0.8=40, answer: 40}",
+    "Q: There are 5 red and 3 blue balls. How many total?",
+    "A: {reasoning: 5+3=8, answer: 8}",
+    "Q: A rectangle is 6 wide and 4 tall. What is its area?",
+    "A: {reasoning: 6*4=24, answer: 24}",
+    "",
+    "--- NUMBER LISTS ---",
+    "Q: Numbers: 2,5,8,11. Sum even numbers.",
+    "A: {reasoning: evens are 2,8. 2+8=10, answer: 10}",
+    "Q: Numbers: 1,3,4,6,9. List odd numbers.",
+    "A: {reasoning: odds are 1,3,9, answer: 1, 3, 9}",
+    "Q: Numbers: 3,7,2,9,4. Largest number.",
+    "A: {reasoning: max is 9, answer: 9}",
+    "Q: Numbers: 1,2,3,4,5. Average.",
+    "A: {reasoning: 15/5=3, answer: 3}",
+    "Q: Numbers: 10,20,30. Sort descending.",
+    "A: {reasoning: 30>20>10, answer: 30, 20, 10}",
+    "",
+    "--- YES/NO ---",
+    "Q: Is 17 a prime number?",
+    "A: {reasoning: 17 only divisible by 1 and itself, answer: YES}",
+    "Q: Is 15 a prime number?",
+    "A: {reasoning: 15=3x5, answer: NO}",
+    "Q: Is 25 greater than 30?",
+    "A: {reasoning: 25<30, answer: NO}",
+    "Q: Is 100 divisible by 4?",
+    "A: {reasoning: 100/4=25, answer: YES}",
+    "",
+    "--- STRICT RULES ---",
+    "answer field: ONLY the bare value. No sentences. No units unless asked. No punctuation.",
+    "WHO/WHICH -> name only. Number -> digits only. List -> comma-space separated. YES/NO -> YES or NO.",
   ].join("\n");
 
-  const fallback = await callOpenAI(
+  const result = await callOpenAI(
     apiKey,
     [
-      { role: "system", content: fallbackPrompt },
+      { role: "system", content: systemPrompt },
       { role: "user", content: fullQuestion },
     ],
     process.env.OPENAI_MODEL || "gpt-4o",
+    true,
   );
 
-  return fallback.trim();
+  // Parse JSON and extract answer field
+  try {
+    const start = result.indexOf("{");
+    const end = result.lastIndexOf("}");
+    if (start !== -1 && end !== -1) {
+      const parsed = JSON.parse(result.slice(start, end + 1));
+      if (parsed.answer !== undefined) {
+        return String(parsed.answer).trim();
+      }
+    }
+  } catch (e) {
+    console.error(
+      "JSON parse failed:",
+      e.message,
+      "Raw:",
+      result.slice(0, 200),
+    );
+  }
+
+  // Fallback: extract answer field from raw text
+  const answerMatch = result.match(/"answer"\s*:\s*"([^"]+)"/);
+  if (answerMatch) return answerMatch[1].trim();
+
+  return result.trim();
 }
 
 async function solve(query, assets = []) {
@@ -1552,6 +1603,9 @@ export async function createServerApp(overrides = {}) {
         }
         const assets = Array.isArray(body?.assets) ? body.assets : [];
         const out = await solve(query, assets);
+        // Log every request+response so we can debug scoring
+        console.log("[EVAL] Q: " + JSON.stringify(String(query).slice(0, 200)));
+        console.log("[EVAL] A: " + JSON.stringify(String(out).slice(0, 200)));
         json(response, 200, { output: out });
         return;
       }
