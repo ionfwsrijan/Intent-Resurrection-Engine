@@ -311,6 +311,136 @@ function buildPresentationPayload(store, analyzer, userId = "") {
   };
 }
 
+function extractQuoted(text) {
+  const m = String(text).match(/"([^"]*)"/);
+  return m?.[1] ?? "";
+}
+
+function normalizeSpaces(s) {
+  return String(s).replace(/\s+/g, " ").trim();
+}
+
+function tryParseJsonFromText(text) {
+  const s = String(text);
+  const start = s.indexOf("{");
+  const end = s.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return null;
+  const slice = s.slice(start, end + 1);
+  try {
+    return JSON.parse(slice);
+  } catch {
+    return null;
+  }
+}
+
+function solve(query) {
+  const text = normalizeSpaces(query);
+
+  if (/extract\s+date\s+from/i.test(text)) {
+    const source = extractQuoted(text) || text;
+    const month =
+      "(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)";
+    const re = new RegExp(`\\b\\d{1,2}\\s+${month}\\s+\\d{4}\\b`, "i");
+    const m = String(source).match(re);
+    if (m) return normalizeSpaces(m[0].replace(/[.,;:!?]+$/g, ""));
+    const iso = String(source).match(/\b\d{4}-\d{2}-\d{2}\b/);
+    if (iso) return iso[0];
+    const slash = String(source).match(/\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/);
+    if (slash) return slash[0];
+    return "";
+  }
+
+  if (/extract\s+/i.test(text) && /from\s*:/i.test(text)) {
+    const quoted = extractQuoted(text);
+    if (quoted) return quoted;
+  }
+
+  if (/\bcount\s+words\b/i.test(text)) {
+    const quoted = extractQuoted(text) || text;
+    const words = normalizeSpaces(quoted).split(" ").filter(Boolean);
+    return String(words.length);
+  }
+
+  if (/\bcount\s+characters\b/i.test(text) || /\bcount\s+chars\b/i.test(text)) {
+    const quoted = extractQuoted(text) || text;
+    return String(String(quoted).length);
+  }
+
+  if (/\breverse\b/i.test(text) && /".*"/.test(text)) {
+    const quoted = extractQuoted(text);
+    return quoted.split("").reverse().join("");
+  }
+
+  if (/\buppercase\b/i.test(text) && /".*"/.test(text)) {
+    const quoted = extractQuoted(text);
+    return quoted.toUpperCase();
+  }
+
+  if (/\blowercase\b/i.test(text) && /".*"/.test(text)) {
+    const quoted = extractQuoted(text);
+    return quoted.toLowerCase();
+  }
+
+  if (/\bremove\s+punctuation\b/i.test(text) && /".*"/.test(text)) {
+    const quoted = extractQuoted(text);
+    return quoted.replace(/[^\p{L}\p{N}\s]/gu, "");
+  }
+
+  if (/\brepeat\b/i.test(text) && /".*"/.test(text)) {
+    const quoted = extractQuoted(text);
+    const n = Number((text.match(/\b(\d+)\s+times?\b/i) || [])[1] || "");
+    if (Number.isFinite(n) && n >= 0 && n <= 1000) return quoted.repeat(n);
+  }
+
+  if (/\bvalue\s+of\b/i.test(text) && /\{/.test(text) && /\}/.test(text)) {
+    const obj = tryParseJsonFromText(text);
+    const keyMatch = text.match(
+      /\bvalue\s+of\s+["']?([a-zA-Z0-9_.-]+)["']?\b/i,
+    );
+    if (obj && keyMatch) {
+      const key = keyMatch[1];
+      const parts = key.split(".");
+      let cur = obj;
+      for (const p of parts) {
+        if (cur && typeof cur === "object" && p in cur) cur = cur[p];
+        else return "";
+      }
+      if (cur === null || cur === undefined) return "";
+      if (typeof cur === "string") return cur;
+      if (typeof cur === "number" || typeof cur === "boolean")
+        return String(cur);
+      return JSON.stringify(cur);
+    }
+  }
+
+  const math = text.match(
+    /(-?\d+(?:\.\d+)?)\s*([\+\-\*\/])\s*(-?\d+(?:\.\d+)?)/,
+  );
+  if (math) {
+    const a = Number(math[1]);
+    const op = math[2];
+    const b = Number(math[3]);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return "";
+    let result;
+    if (op === "+") result = a + b;
+    else if (op === "-") result = a - b;
+    else if (op === "*") result = a * b;
+    else if (op === "/") result = b === 0 ? NaN : a / b;
+    if (!Number.isFinite(result)) return "";
+    const out = Number.isInteger(result) ? String(result) : String(result);
+    if (op === "+") return `The sum is ${out}.`;
+    return `The result is ${out}.`;
+  }
+
+  const lastQuoted = extractQuoted(text);
+  if (lastQuoted) return lastQuoted;
+
+  const lastNumber = text.match(/-?\d+(?:\.\d+)?/g);
+  if (lastNumber && lastNumber.length === 1) return lastNumber[0];
+
+  return "";
+}
+
 export async function createServerApp(overrides = {}) {
   const config = resolveConfig(overrides);
   const store = createStore(config.databasePath);
@@ -1287,65 +1417,14 @@ export async function createServerApp(overrides = {}) {
     try {
       if (request.method === "POST" && url.pathname === "/v1/answer") {
         const body = await readJsonBody(request);
-
         const query =
           body?.query ?? body?.question ?? body?.input ?? body?.prompt ?? "";
-
         if (!query || !String(query).trim()) {
           badRequest(response, "query is required.");
           return;
         }
-
-        const answer = (() => {
-          const text = String(query).trim();
-
-          if (/extract\s+date\s+from/i.test(text)) {
-            const quoted = text.match(/"([^"]+)"/);
-            const source = (quoted?.[1] ?? text).toString();
-
-            const month =
-              "(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)";
-            const re = new RegExp(`\\b\\d{1,2}\\s+${month}\\s+\\d{4}\\b`);
-            const m = source.match(re);
-            if (m) return m[0];
-
-            const iso = source.match(/\b\d{4}-\d{2}-\d{2}\b/);
-            if (iso) return iso[0];
-
-            const slash = source.match(/\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/);
-            if (slash) return slash[0];
-
-            return "I don't know.";
-          }
-
-          const match = text.match(
-            /(-?\d+(?:\.\d+)?)\s*([\+\-\*\/])\s*(-?\d+(?:\.\d+)?)/,
-          );
-          if (!match) return "I don't know.";
-
-          const a = Number(match[1]);
-          const op = match[2];
-          const b = Number(match[3]);
-          if (!Number.isFinite(a) || !Number.isFinite(b))
-            return "I don't know.";
-
-          let result;
-          if (op === "+") result = a + b;
-          else if (op === "-") result = a - b;
-          else if (op === "*") result = a * b;
-          else if (op === "/") result = b === 0 ? NaN : a / b;
-
-          if (!Number.isFinite(result)) return "I don't know.";
-
-          const out = Number.isInteger(result)
-            ? String(result)
-            : String(result);
-
-          if (op === "+") return `The sum is ${out}.`;
-          return `The result is ${out}.`;
-        })();
-
-        json(response, 200, { output: answer });
+        const out = solve(query);
+        json(response, 200, { output: out });
         return;
       }
 
