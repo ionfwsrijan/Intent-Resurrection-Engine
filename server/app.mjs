@@ -333,7 +333,7 @@ function tryParseJsonFromText(text) {
   }
 }
 
-function solve(query) {
+function solveLocal(query) {
   const text = normalizeSpaces(query);
 
   if (/\bodd\b|\beven\b/i.test(text) && /\bnumber\b/i.test(text)) {
@@ -447,13 +447,44 @@ function solve(query) {
     return `The result is ${out}.`;
   }
 
-  const lastQuoted = extractQuoted(text);
-  if (lastQuoted) return lastQuoted;
-
-  const lastNumber = text.match(/-?\d+(?:\.\d+)?/g);
-  if (lastNumber && lastNumber.length === 1) return lastNumber[0];
-
   return "";
+}
+
+async function solveWithLlm(query) {
+  const apiKey = process.env.OPENAI_API_KEY || "";
+  if (!apiKey) return "";
+
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+      temperature: 0,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a function that answers the user's query. Return only the final answer text with no extra words, no JSON, no quotes, no markdown. If the question is yes/no, output exactly YES or NO.",
+        },
+        { role: "user", content: String(query) },
+      ],
+    }),
+  });
+
+  if (!res.ok) return "";
+  const data = await res.json();
+  const content = data?.choices?.[0]?.message?.content ?? "";
+  return normalizeSpaces(String(content));
+}
+
+async function solve(query) {
+  const local = solveLocal(query);
+  if (local) return local;
+  const llm = await solveWithLlm(query);
+  return llm || "";
 }
 
 export async function createServerApp(overrides = {}) {
@@ -1438,7 +1469,7 @@ export async function createServerApp(overrides = {}) {
           badRequest(response, "query is required.");
           return;
         }
-        const out = solve(query);
+        const out = await solve(query);
         json(response, 200, { output: out });
         return;
       }
