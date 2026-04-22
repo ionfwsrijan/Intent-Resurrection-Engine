@@ -1429,7 +1429,6 @@ function stripInjection(q) {
 }
 
 async function solveWebAutomation(query, assets = []) {
-  // Only trigger for web automation tasks
   const text = normalizeSpaces(query);
   const hasWebAssets = assets.some((a) => /^https?:\/\//i.test(String(a)));
   const isWebTask =
@@ -1439,7 +1438,7 @@ async function solveWebAutomation(query, assets = []) {
     );
   if (!isWebTask) return "";
 
-  // Gather URLs from assets first, then query text
+  // Collect URLs: assets first, then from query text
   const urlRe = /https?:\/\/[^\s"'<>)\]]+/g;
   const urlsFromQuery = [];
   let m;
@@ -1453,25 +1452,26 @@ async function solveWebAutomation(query, assets = []) {
 
   let browser;
   try {
-    // Try standard import, fall back to global npm path
     let chromium;
     try {
       const pw = await import("playwright");
       chromium = pw.chromium;
     } catch {
-      const pw =
-        (await import("/home/claude/.npm-global/lib/node_modules/playwright/index.js").catch(
-          () => null,
-        )) ||
-        (await import("/usr/local/lib/node_modules/playwright/index.js").catch(
-          () => null,
-        )) ||
-        (await import("/usr/lib/node_modules/playwright/index.js").catch(
-          () => null,
-        ));
-      if (!pw) throw new Error("playwright not found");
-      chromium = pw.chromium;
+      // Try common global install paths
+      for (const p of [
+        "/usr/local/lib/node_modules/playwright/index.js",
+        "/usr/lib/node_modules/playwright/index.js",
+        "/home/claude/.npm-global/lib/node_modules/playwright/index.js",
+      ]) {
+        try {
+          const pw = await import(p);
+          chromium = pw.chromium;
+          break;
+        } catch {}
+      }
+      if (!chromium) throw new Error("playwright not found");
     }
+
     browser = await chromium.launch({
       headless: true,
       args: [
@@ -1480,134 +1480,155 @@ async function solveWebAutomation(query, assets = []) {
         "--disable-dev-shm-usage",
       ],
     });
-    const context = await browser.newContext({
-      userAgent:
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    });
+    const context = await browser.newContext();
     const page = await context.newPage();
 
-    // Capture dialogs BEFORE navigation
+    // CRITICAL: intercept window.alert/confirm/prompt BEFORE page load
+    // by injecting a script that overrides them and stores messages
+    await context.addInitScript(() => {
+      window.__alertMessages = [];
+      const _alert = window.alert.bind(window);
+      window.alert = (msg) => {
+        window.__alertMessages.push(String(msg));
+        // don't call real alert — headless would block
+      };
+      const _confirm = window.confirm.bind(window);
+      window.confirm = (msg) => {
+        window.__alertMessages.push(String(msg));
+        return true;
+      };
+      const _prompt = window.prompt.bind(window);
+      window.prompt = (msg) => {
+        window.__alertMessages.push(String(msg));
+        return "";
+      };
+    });
+
+    // Also catch native Playwright dialogs as backup
     const dialogMessages = [];
     page.on("dialog", async (dialog) => {
-      const msg = dialog.message();
-      dialogMessages.push(msg);
-      console.log("[WebAuto] dialog:", msg);
+      dialogMessages.push(dialog.message());
+      console.log("[WebAuto] playwright dialog:", dialog.message());
       await dialog.accept();
     });
 
     const targetUrl = String(allUrls[0]);
     console.log("[WebAuto] goto:", targetUrl);
-
     await page.goto(targetUrl, {
       waitUntil: "domcontentloaded",
       timeout: 40000,
     });
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(1000);
 
-    // --- Determine tab to click (parse from query) ---
-    // e.g. "click on the simple button tab" → "simple button"
+    // --- Tab navigation ---
     const tabMatch = text.match(/click\s+on\s+the\s+([\w\s]+?)\s+tab\b/i);
     const wantedTab = tabMatch ? tabMatch[1].trim().toLowerCase() : "";
-
     if (wantedTab) {
-      // Check if current URL already matches what we want — if not, try to click the tab
       const currentPath = new URL(page.url()).pathname.toLowerCase();
-      const tabAlreadyActive =
+      const alreadyThere =
         currentPath.includes(wantedTab.replace(/\s+/g, "_")) ||
         currentPath.includes(wantedTab.replace(/\s+/g, "-")) ||
-        currentPath.includes(wantedTab.replace(/\s+/g, ""));
-
-      if (!tabAlreadyActive) {
-        console.log("[WebAuto] need to click tab:", wantedTab);
-        // Try all visible tab-like elements
-        const tabClicked = await page.evaluate((wanted) => {
-          const candidates = [
-            ...document.querySelectorAll(
-              'a, button, [role="tab"], li, .nav-link, .tab',
-            ),
-          ];
-          for (const el of candidates) {
-            const txt = (el.innerText || el.textContent || "")
-              .trim()
-              .toLowerCase();
-            if (
-              (txt && wanted.includes(txt.split(" ")[0])) ||
-              txt.includes(wanted.split(" ")[0])
-            ) {
-              el.click();
-              return txt;
-            }
-          }
-          return "";
-        }, wantedTab);
-        console.log("[WebAuto] tab clicked via evaluate:", tabClicked);
-        await page.waitForTimeout(800);
+        currentPath
+          .replace(/[_-]/g, "")
+          .includes(wantedTab.replace(/\s+/g, ""));
+      if (!alreadyThere) {
+        console.log("[WebAuto] clicking tab:", wantedTab);
+        // Use Playwright locator — won't block on alert
+        const tabWords = wantedTab.split(" ");
+        for (const word of tabWords) {
+          try {
+            await page
+              .getByRole("link", { name: new RegExp(word, "i") })
+              .first()
+              .click({ timeout: 3000 });
+            await page.waitForTimeout(600);
+            break;
+          } catch {}
+          try {
+            await page
+              .getByRole("tab", { name: new RegExp(word, "i") })
+              .first()
+              .click({ timeout: 3000 });
+            await page.waitForTimeout(600);
+            break;
+          } catch {}
+        }
       } else {
-        console.log("[WebAuto] tab already active:", currentPath);
+        console.log("[WebAuto] already on tab:", currentPath);
       }
     }
 
-    // --- Find and click the target button ---
-    // Parse button name: "button named 'Click'" or default to "Click"
+    // --- Click the target button using Playwright (NOT evaluate) ---
     const btnNameMatch = text.match(
-      /button\s+(?:named|labelled?|called)\s+['"]?(\w+)['"]?/i,
+      /button\s+(?:named|labelled?|called)\s+['"]?(\w[\w\s]*)['"]?/i,
     );
     const targetBtn = btnNameMatch ? btnNameMatch[1].trim() : "Click";
-    console.log("[WebAuto] looking for button:", targetBtn);
+    console.log("[WebAuto] clicking button:", targetBtn);
 
-    // Strategy: click via evaluate (bypasses visibility issues and iframes)
-    const clickedInfo = await page.evaluate((btnText) => {
-      const all = [
-        ...document.querySelectorAll(
-          "button, input[type='button'], input[type='submit'], a, [role='button']",
-        ),
-      ];
-      for (const el of all) {
-        const txt = (el.innerText || el.value || el.textContent || "").trim();
-        if (txt === btnText) {
-          el.click();
-          return {
-            found: true,
-            tag: el.tagName,
-            id: el.id,
-            cls: el.className,
-            txt,
-          };
+    let clicked = false;
+
+    // Try exact Playwright locators first — these properly yield for dialog events
+    const selectors = [
+      `button:has-text("${targetBtn}")`,
+      `input[value="${targetBtn}"]`,
+      `a:has-text("${targetBtn}")`,
+      `[role="button"]:has-text("${targetBtn}")`,
+    ];
+    for (const sel of selectors) {
+      try {
+        const el = page.locator(sel).first();
+        if (await el.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await el.click({ timeout: 5000, force: true });
+          clicked = true;
+          console.log("[WebAuto] clicked:", sel);
+          break;
         }
+      } catch (e) {
+        console.log("[WebAuto] selector failed:", sel, e.message);
       }
-      // Fallback: partial match
-      for (const el of all) {
-        const txt = (el.innerText || el.value || el.textContent || "").trim();
-        if (txt.toLowerCase().includes(btnText.toLowerCase())) {
-          el.click();
-          return {
-            found: true,
-            tag: el.tagName,
-            id: el.id,
-            cls: el.className,
-            txt,
-          };
-        }
-      }
-      return { found: false };
-    }, targetBtn);
-    console.log("[WebAuto] click result:", JSON.stringify(clickedInfo));
-
-    // Wait for any async response (dialog or DOM update)
-    await page.waitForTimeout(2500);
-
-    // --- Priority 1: browser dialog ---
-    if (dialogMessages.length > 0) {
-      const msg = dialogMessages[dialogMessages.length - 1].trim();
-      console.log("[WebAuto] returning dialog msg:", msg);
-      return msg;
     }
 
-    // --- Priority 2: in-page result element ---
-    // Scan ALL elements for any that appeared/changed after click
+    if (!clicked) {
+      // Last resort: get all elements, find by text, use Playwright nth() click
+      const count = await page
+        .locator("button, a, input[type='button'], input[type='submit']")
+        .count();
+      for (let i = 0; i < count; i++) {
+        const el = page
+          .locator("button, a, input[type='button'], input[type='submit']")
+          .nth(i);
+        const t = (await el.innerText().catch(() => "")).trim();
+        const v = (await el.getAttribute("value").catch(() => "")) || "";
+        if (
+          t === targetBtn ||
+          v === targetBtn ||
+          t.includes(targetBtn) ||
+          v.includes(targetBtn)
+        ) {
+          await el.click({ timeout: 5000, force: true });
+          clicked = true;
+          console.log("[WebAuto] nth click:", t);
+          break;
+        }
+      }
+    }
+
+    // Wait for dialog/DOM to update
+    await page.waitForTimeout(2000);
+
+    // --- Check intercepted alert messages (most reliable) ---
+    const intercepted = await page.evaluate(() => window.__alertMessages || []);
+    console.log("[WebAuto] intercepted alerts:", intercepted);
+    if (intercepted.length > 0)
+      return intercepted[intercepted.length - 1].trim();
+
+    // --- Check Playwright-captured dialogs ---
+    if (dialogMessages.length > 0)
+      return dialogMessages[dialogMessages.length - 1].trim();
+
+    // --- In-page result scan ---
     const resultText = await page.evaluate(() => {
-      // Common result IDs/classes used by qa-practice.com
-      const priority = [
+      const prioritySelectors = [
         "#result",
         "#output",
         "#message",
@@ -1623,52 +1644,40 @@ async function solveWebAutomation(query, assets = []) {
         ".alert-info",
         ".alert",
         '[role="alert"]',
-        ".response",
-        "#content-result",
       ];
-      for (const sel of priority) {
-        try {
-          const el = document.querySelector(sel);
-          if (el) {
-            const txt = (el.innerText || el.textContent || "").trim();
-            if (txt && txt.length > 0 && txt.length < 500) return txt;
-          }
-        } catch {}
+      for (const sel of prioritySelectors) {
+        const el = document.querySelector(sel);
+        if (el) {
+          const txt = (el.innerText || el.textContent || "").trim();
+          if (txt && txt.length > 0 && txt.length < 500) return txt;
+        }
       }
-
-      // Broad scan: any element whose text changed or is new
-      // Look for short, standalone text nodes that look like confirmation messages
-      const all = document.querySelectorAll(
-        "p, span, div, h1, h2, h3, h4, li, td",
-      );
-      const skipPatterns =
-        /requirements|copyright|homepage|dashboard|single ui|buttons|checkbox|select|new tab|text area|alerts|drag|iframe|pop-up|forms|contact|what's new|simple button|looks like|disabled/i;
-      for (const el of all) {
+      // Broad scan — look for any short visible leaf text not in nav/footer
+      const skip =
+        /requirements|copyright|homepage|dashboard|single ui|inputs|buttons|checkbox|select|new tab|text area|alerts|drag|iframe|pop-up|forms|contact|what.s new|simple button|looks like|disabled|click/i;
+      for (const el of document.querySelectorAll("p, span, h2, h3, div")) {
+        if (el.children.length > 0) continue;
         const txt = (el.innerText || "").trim();
+        const rect = el.getBoundingClientRect();
         if (
           txt &&
-          txt.length > 1 &&
-          txt.length < 200 &&
-          el.children.length === 0 &&
-          !skipPatterns.test(txt) &&
-          !/^\s*[•·©]\s*/.test(txt)
+          txt.length > 2 &&
+          txt.length < 300 &&
+          !skip.test(txt) &&
+          rect.width > 0
         ) {
-          // Check it's visible
-          const rect = el.getBoundingClientRect();
-          if (rect.width > 0 && rect.height > 0) {
-            return txt;
-          }
+          return txt;
         }
       }
       return "";
     });
 
     if (resultText) {
-      console.log("[WebAuto] in-page result:", resultText);
+      console.log("[WebAuto] in-page:", resultText);
       return resultText;
     }
 
-    console.log("[WebAuto] no result found");
+    console.log("[WebAuto] no result");
     return "";
   } catch (err) {
     console.error("[WebAutomation] error:", err.message);
