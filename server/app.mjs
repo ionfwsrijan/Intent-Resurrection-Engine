@@ -461,7 +461,7 @@ async function solveWithLlm(query, assets = []) {
         try {
           const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
           const text = await r.text();
-          return "[Asset: " + url + "]\n" + text.slice(0, 4000);
+          return "[Asset: " + url + "]\n" + text.slice(0, 8000);
         } catch {
           return "[Asset: " + url + " - could not fetch]";
         }
@@ -475,14 +475,17 @@ async function solveWithLlm(query, assets = []) {
     : String(query);
 
   const systemPrompt = [
-    "You are a precise answer engine. Rules:",
-    "- Return ONLY the final answer, nothing else.",
-    "- No preamble, no explanation, no punctuation unless it is part of the answer.",
-    "- For math/computation (sum, product, filter numbers, etc.), return only the numeric result.",
-    "- For yes/no questions, output exactly YES or NO.",
-    "- For extraction tasks (dates, names, values), return only the extracted value.",
-    "- For string tasks (reverse, uppercase, etc.), return only the transformed string.",
-    "- Never add units, labels, or sentences around the answer.",
+    "You are an exact answer engine. Output ONLY the answer value — no explanation, no labels, no punctuation added.",
+    "Rules:",
+    "- Numbers/math: output only the number (e.g. 10, not 'The sum is 10')",
+    "- Lists of numbers: output comma-separated values (e.g. 2, 8)",
+    "- Yes/No questions: output exactly YES or NO",
+    "- Date extraction: output only the date as it appears",
+    "- String operations (reverse, uppercase, etc.): output only the result string",
+    "- JSON/object lookups: output only the value",
+    "- If the answer is a list, separate items with a comma and space",
+    "- Never wrap answers in quotes, markdown, or sentences",
+    "- Do not round decimals unless asked",
   ].join("\n");
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -492,7 +495,7 @@ async function solveWithLlm(query, assets = []) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+      model: process.env.OPENAI_MODEL || "gpt-4o",
       temperature: 0,
       messages: [
         { role: "system", content: systemPrompt },
@@ -501,10 +504,14 @@ async function solveWithLlm(query, assets = []) {
     }),
   });
 
-  if (!res.ok) return "";
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error("OpenAI error:", res.status, errText);
+    return "";
+  }
   const data = await res.json();
   const content = data?.choices?.[0]?.message?.content ?? "";
-  return normalizeSpaces(String(content));
+  return String(content).trim();
 }
 
 async function solve(query, assets = []) {
