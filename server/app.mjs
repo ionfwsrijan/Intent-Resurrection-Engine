@@ -1297,7 +1297,67 @@ export async function createServerApp(overrides = {}) {
         }
 
         const answer = (() => {
-          const text = String(query);
+          const text = String(query).trim();
+
+          if (/extract\s+date\s+from/i.test(text)) {
+            const month =
+              "(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)";
+            const re = new RegExp(
+              `\\b(\\d{1,2})\\s+${month}\\s+(\\d{4})\\b`,
+              "i",
+            );
+            const m = text.match(re);
+            if (m) {
+              const day = String(Number(m[1]));
+              const rawMonth = m[2];
+              const year = m[3];
+              const monthMap = {
+                jan: "January",
+                feb: "February",
+                mar: "March",
+                apr: "April",
+                may: "May",
+                jun: "June",
+                jul: "July",
+                aug: "August",
+                sep: "September",
+                sept: "September",
+                oct: "October",
+                nov: "November",
+                dec: "December",
+              };
+              const key = rawMonth.toLowerCase();
+              const normalizedMonth =
+                monthMap[key] ??
+                key.charAt(0).toUpperCase() + key.slice(1).toLowerCase();
+              return `${day} ${normalizedMonth} ${year}`;
+            }
+
+            const iso = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+            if (iso) {
+              const y = iso[1];
+              const mm = iso[2];
+              const dd = iso[3];
+              const months = [
+                "January",
+                "February",
+                "March",
+                "April",
+                "May",
+                "June",
+                "July",
+                "August",
+                "September",
+                "October",
+                "November",
+                "December",
+              ];
+              const monthName = months[Number(mm) - 1] || mm;
+              return `${Number(dd)} ${monthName} ${y}`;
+            }
+
+            return "I don't know.";
+          }
 
           const match = text.match(
             /(-?\d+(?:\.\d+)?)\s*([\+\-\*\/])\s*(-?\d+(?:\.\d+)?)/,
@@ -1322,7 +1382,8 @@ export async function createServerApp(overrides = {}) {
             ? String(result)
             : String(result);
 
-          return `The sum is ${out}.`;
+          if (op === "+") return `The sum is ${out}.`;
+          return `The result is ${out}.`;
         })();
 
         json(response, 200, { output: answer });
