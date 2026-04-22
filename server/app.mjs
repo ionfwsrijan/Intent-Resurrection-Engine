@@ -1429,276 +1429,243 @@ function stripInjection(q) {
 }
 
 async function solveWebAutomation(query, assets = []) {
-  // Detect web automation / browser interaction tasks
+  // Only trigger for web automation tasks
   const text = normalizeSpaces(query);
+  const hasWebAssets = assets.some((a) => /^https?:\/\//i.test(String(a)));
   const isWebTask =
-    /go\s+to\s+the\s+link|click.*button|button.*click|confirmation\s+message|alert.*box|simple\s+button\s+tab|qa-practice\.com/i.test(
+    hasWebAssets ||
+    /go\s+to\s+the\s+link|click.*button|confirmation\s+message|simple\s+button\s+tab|qa-practice\.com/i.test(
       text,
     );
-  if (!isWebTask && assets.length === 0) return "";
+  if (!isWebTask) return "";
 
-  // Collect candidate URLs: from assets array first, then from query text
+  // Gather URLs from assets first, then query text
+  const urlRe = /https?:\/\/[^\s"'<>)\]]+/g;
   const urlsFromQuery = [];
-  const urlRe = /https?:\/\/[^\s"'<>)]+/g;
   let m;
   while ((m = urlRe.exec(text)) !== null) {
     urlsFromQuery.push(m[0].replace(/[.,;:!?]+$/, ""));
   }
-  const allUrls = [...assets, ...urlsFromQuery].filter(Boolean);
-
+  const allUrls = [...assets, ...urlsFromQuery].filter(
+    (u) => u && /^https?:\/\//i.test(String(u)),
+  );
   if (allUrls.length === 0) return "";
 
   let browser;
   try {
-    const { chromium } = await import("playwright");
+    // Try standard import, fall back to global npm path
+    let chromium;
+    try {
+      const pw = await import("playwright");
+      chromium = pw.chromium;
+    } catch {
+      const pw =
+        (await import("/home/claude/.npm-global/lib/node_modules/playwright/index.js").catch(
+          () => null,
+        )) ||
+        (await import("/usr/local/lib/node_modules/playwright/index.js").catch(
+          () => null,
+        )) ||
+        (await import("/usr/lib/node_modules/playwright/index.js").catch(
+          () => null,
+        ));
+      if (!pw) throw new Error("playwright not found");
+      chromium = pw.chromium;
+    }
     browser = await chromium.launch({
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+      ],
     });
     const context = await browser.newContext({
       userAgent:
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     });
     const page = await context.newPage();
 
-    // Capture ALL dialogs immediately
+    // Capture dialogs BEFORE navigation
     const dialogMessages = [];
     page.on("dialog", async (dialog) => {
       const msg = dialog.message();
       dialogMessages.push(msg);
-      console.log("[WebAuto] dialog captured:", msg);
+      console.log("[WebAuto] dialog:", msg);
       await dialog.accept();
     });
 
-    let targetUrl = allUrls[0];
+    const targetUrl = String(allUrls[0]);
+    console.log("[WebAuto] goto:", targetUrl);
 
-    // If the query mentions "simple button tab" and the URL doesn't already point there,
-    // try to navigate directly to the simple sub-path
-    if (
-      /simple\s+button\s+tab/i.test(text) &&
-      !/\/simple/.test(targetUrl) &&
-      /qa-practice\.com/i.test(targetUrl)
-    ) {
-      // Derive simple button URL from base
-      const baseUrl = targetUrl.replace(/\/$/, "");
-      targetUrl = baseUrl.includes("/elements/button")
-        ? baseUrl + "/simple"
-        : targetUrl;
-    }
-
-    console.log("[WebAuto] navigating to:", targetUrl);
     await page.goto(targetUrl, {
       waitUntil: "domcontentloaded",
-      timeout: 30000,
+      timeout: 40000,
     });
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(1500);
 
-    // --- Step 1: Handle tab navigation if needed ---
-    // Parse tab name from query: "click on the X tab" or "click on the simple button tab"
-    const tabMatch = text.match(/click\s+on\s+the\s+(.+?)\s+tab/i);
-    const tabName = tabMatch ? tabMatch[1].trim() : "";
+    // --- Determine tab to click (parse from query) ---
+    // e.g. "click on the simple button tab" → "simple button"
+    const tabMatch = text.match(/click\s+on\s+the\s+([\w\s]+?)\s+tab\b/i);
+    const wantedTab = tabMatch ? tabMatch[1].trim().toLowerCase() : "";
 
-    if (tabName) {
-      // Try to click the tab with matching text
-      const tabSelectors = [
-        `[role="tab"]:has-text("${tabName}")`,
-        `button:has-text("${tabName}")`,
-        `a:has-text("${tabName}")`,
-        `li:has-text("${tabName}")`,
-        `.tab:has-text("${tabName}")`,
-        `.nav-link:has-text("${tabName}")`,
-        `[data-toggle="tab"]:has-text("${tabName}")`,
-      ];
-      let tabClicked = false;
-      for (const sel of tabSelectors) {
-        try {
-          const el = page.locator(sel).first();
-          if (await el.isVisible({ timeout: 1500 }).catch(() => false)) {
-            await el.click();
-            await page.waitForTimeout(800);
-            tabClicked = true;
-            console.log("[WebAuto] tab clicked with selector:", sel);
-            break;
-          }
-        } catch {
-          // try next
-        }
-      }
-      if (!tabClicked) {
-        // Fallback: find any tab/link whose text loosely matches
-        try {
-          const allLinks = page.locator(
-            "a, button, [role='tab'], .tab, .nav-link",
-          );
-          const count = await allLinks.count();
-          for (let i = 0; i < count; i++) {
-            const el = allLinks.nth(i);
-            const elText = (await el.innerText().catch(() => ""))
-              .toLowerCase()
-              .trim();
+    if (wantedTab) {
+      // Check if current URL already matches what we want — if not, try to click the tab
+      const currentPath = new URL(page.url()).pathname.toLowerCase();
+      const tabAlreadyActive =
+        currentPath.includes(wantedTab.replace(/\s+/g, "_")) ||
+        currentPath.includes(wantedTab.replace(/\s+/g, "-")) ||
+        currentPath.includes(wantedTab.replace(/\s+/g, ""));
+
+      if (!tabAlreadyActive) {
+        console.log("[WebAuto] need to click tab:", wantedTab);
+        // Try all visible tab-like elements
+        const tabClicked = await page.evaluate((wanted) => {
+          const candidates = [
+            ...document.querySelectorAll(
+              'a, button, [role="tab"], li, .nav-link, .tab',
+            ),
+          ];
+          for (const el of candidates) {
+            const txt = (el.innerText || el.textContent || "")
+              .trim()
+              .toLowerCase();
             if (
-              (elText && tabName.toLowerCase().includes(elText)) ||
-              elText.includes(tabName.toLowerCase().split(" ")[0])
+              (txt && wanted.includes(txt.split(" ")[0])) ||
+              txt.includes(wanted.split(" ")[0])
             ) {
-              if (await el.isVisible({ timeout: 500 }).catch(() => false)) {
-                await el.click();
-                await page.waitForTimeout(800);
-                console.log("[WebAuto] fallback tab clicked:", elText);
-                break;
-              }
+              el.click();
+              return txt;
             }
           }
-        } catch {
-          // proceed anyway
-        }
+          return "";
+        }, wantedTab);
+        console.log("[WebAuto] tab clicked via evaluate:", tabClicked);
+        await page.waitForTimeout(800);
+      } else {
+        console.log("[WebAuto] tab already active:", currentPath);
       }
     }
 
-    // --- Step 2: Find and click the 'Click' button ---
-    // Determine button name from query: "button named 'X'" or "button named X"
-    const btnNameMatch = text.match(/button\s+named\s+['"]?([^'".\s]+)['"]?/i);
-    const targetBtnName = btnNameMatch ? btnNameMatch[1].trim() : "Click";
+    // --- Find and click the target button ---
+    // Parse button name: "button named 'Click'" or default to "Click"
+    const btnNameMatch = text.match(
+      /button\s+(?:named|labelled?|called)\s+['"]?(\w+)['"]?/i,
+    );
+    const targetBtn = btnNameMatch ? btnNameMatch[1].trim() : "Click";
+    console.log("[WebAuto] looking for button:", targetBtn);
 
-    const clickButtonSelectors = [
-      `button:has-text("${targetBtnName}")`,
-      `input[type="button"][value="${targetBtnName}"]`,
-      `input[type="submit"][value="${targetBtnName}"]`,
-      `a:has-text("${targetBtnName}")`,
-      `[role="button"]:has-text("${targetBtnName}")`,
-    ];
-
-    let clicked = false;
-    for (const sel of clickButtonSelectors) {
-      try {
-        const el = page.locator(sel).first();
-        if (await el.isVisible({ timeout: 3000 }).catch(() => false)) {
-          // Scroll into view and click
-          await el.scrollIntoViewIfNeeded();
-          await el.click({ timeout: 5000 });
-          await page.waitForTimeout(2000);
-          clicked = true;
-          console.log("[WebAuto] button clicked with selector:", sel);
-          break;
+    // Strategy: click via evaluate (bypasses visibility issues and iframes)
+    const clickedInfo = await page.evaluate((btnText) => {
+      const all = [
+        ...document.querySelectorAll(
+          "button, input[type='button'], input[type='submit'], a, [role='button']",
+        ),
+      ];
+      for (const el of all) {
+        const txt = (el.innerText || el.value || el.textContent || "").trim();
+        if (txt === btnText) {
+          el.click();
+          return {
+            found: true,
+            tag: el.tagName,
+            id: el.id,
+            cls: el.className,
+            txt,
+          };
         }
-      } catch {
-        // try next
       }
-    }
-
-    // Fallback: click any visible interactive button
-    if (!clicked) {
-      try {
-        const allBtns = page.locator(
-          "button:visible, input[type='button']:visible, input[type='submit']:visible, a.btn:visible",
-        );
-        const count = await allBtns.count();
-        for (let i = 0; i < count; i++) {
-          const btn = allBtns.nth(i);
-          const btnText = (await btn.innerText().catch(() => "")).trim();
-          const btnVal =
-            (await btn.getAttribute("value").catch(() => "")) || "";
-          const combined = (btnText + " " + btnVal).toLowerCase();
-          if (
-            combined.includes(targetBtnName.toLowerCase()) ||
-            combined.includes("click") ||
-            combined.includes("go")
-          ) {
-            await btn.scrollIntoViewIfNeeded();
-            await btn.click({ timeout: 5000 });
-            await page.waitForTimeout(2000);
-            clicked = true;
-            console.log("[WebAuto] fallback button clicked:", btnText);
-            break;
-          }
+      // Fallback: partial match
+      for (const el of all) {
+        const txt = (el.innerText || el.value || el.textContent || "").trim();
+        if (txt.toLowerCase().includes(btnText.toLowerCase())) {
+          el.click();
+          return {
+            found: true,
+            tag: el.tagName,
+            id: el.id,
+            cls: el.className,
+            txt,
+          };
         }
-      } catch {
-        // continue to response collection
       }
-    }
+      return { found: false };
+    }, targetBtn);
+    console.log("[WebAuto] click result:", JSON.stringify(clickedInfo));
 
-    // --- Step 3: Return dialog message (highest priority) ---
+    // Wait for any async response (dialog or DOM update)
+    await page.waitForTimeout(2500);
+
+    // --- Priority 1: browser dialog ---
     if (dialogMessages.length > 0) {
       const msg = dialogMessages[dialogMessages.length - 1].trim();
-      console.log("[WebAuto] returning dialog:", msg);
+      console.log("[WebAuto] returning dialog msg:", msg);
       return msg;
     }
 
-    // Wait a moment more in case dialog fires async
-    await page.waitForTimeout(500);
-    if (dialogMessages.length > 0) {
-      return dialogMessages[dialogMessages.length - 1].trim();
-    }
+    // --- Priority 2: in-page result element ---
+    // Scan ALL elements for any that appeared/changed after click
+    const resultText = await page.evaluate(() => {
+      // Common result IDs/classes used by qa-practice.com
+      const priority = [
+        "#result",
+        "#output",
+        "#message",
+        "#confirmation",
+        "#success",
+        "#alert-message",
+        "#response",
+        ".result",
+        ".output",
+        ".success-message",
+        ".confirmation",
+        ".alert-success",
+        ".alert-info",
+        ".alert",
+        '[role="alert"]',
+        ".response",
+        "#content-result",
+      ];
+      for (const sel of priority) {
+        try {
+          const el = document.querySelector(sel);
+          if (el) {
+            const txt = (el.innerText || el.textContent || "").trim();
+            if (txt && txt.length > 0 && txt.length < 500) return txt;
+          }
+        } catch {}
+      }
 
-    // --- Step 4: Look for in-page confirmation text ---
-    const confirmSelectors = [
-      "#result",
-      "#output",
-      "#message",
-      "#confirmation",
-      "#alert",
-      "#response",
-      "#success",
-      ".result",
-      ".output",
-      ".message",
-      ".confirmation",
-      ".alert-success",
-      ".alert-info",
-      ".alert-warning",
-      ".alert-danger",
-      ".alert",
-      '[role="alert"]',
-      ".modal-body",
-      ".popup-content",
-      ".popup",
-      ".response",
-      ".success",
-      ".notification",
-      ".toast",
-      ".snackbar",
-      "p.success",
-      "p.result",
-      "p.message",
-      "span.result",
-      "span.message",
-      "div.result",
-    ];
-
-    for (const sel of confirmSelectors) {
-      try {
-        const el = page.locator(sel).first();
-        if (await el.isVisible({ timeout: 800 }).catch(() => false)) {
-          const txt = (await el.innerText()).trim();
-          if (txt && txt.length > 0 && txt.length < 500) {
-            console.log("[WebAuto] found confirmation text:", txt);
+      // Broad scan: any element whose text changed or is new
+      // Look for short, standalone text nodes that look like confirmation messages
+      const all = document.querySelectorAll(
+        "p, span, div, h1, h2, h3, h4, li, td",
+      );
+      const skipPatterns =
+        /requirements|copyright|homepage|dashboard|single ui|buttons|checkbox|select|new tab|text area|alerts|drag|iframe|pop-up|forms|contact|what's new|simple button|looks like|disabled/i;
+      for (const el of all) {
+        const txt = (el.innerText || "").trim();
+        if (
+          txt &&
+          txt.length > 1 &&
+          txt.length < 200 &&
+          el.children.length === 0 &&
+          !skipPatterns.test(txt) &&
+          !/^\s*[•·©]\s*/.test(txt)
+        ) {
+          // Check it's visible
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
             return txt;
           }
         }
-      } catch {
-        // continue
       }
-    }
+      return "";
+    });
 
-    // --- Step 5: Check for any new visible text that appeared after click ---
-    // Look at body text and extract meaningful new content
-    try {
-      const bodyText = await page.evaluate(() => {
-        // Find any element that has class/id suggesting result
-        const candidates = document.querySelectorAll(
-          '[class*="result"],[class*="output"],[class*="message"],[class*="confirm"],[class*="alert"],[class*="success"],[id*="result"],[id*="output"],[id*="message"],[id*="confirm"],[id*="alert"],[id*="response"]',
-        );
-        for (const el of candidates) {
-          const txt = el.innerText?.trim();
-          if (txt && txt.length > 0 && txt.length < 500) return txt;
-        }
-        return "";
-      });
-      if (bodyText) {
-        console.log("[WebAuto] found via DOM scan:", bodyText);
-        return bodyText;
-      }
-    } catch {
-      // ignore
+    if (resultText) {
+      console.log("[WebAuto] in-page result:", resultText);
+      return resultText;
     }
 
     console.log("[WebAuto] no result found");
@@ -1710,9 +1677,7 @@ async function solveWebAutomation(query, assets = []) {
     if (browser) {
       try {
         await browser.close();
-      } catch {
-        // ignore
-      }
+      } catch {}
     }
   }
 }
