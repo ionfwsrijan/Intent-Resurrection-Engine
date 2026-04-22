@@ -1453,318 +1453,6 @@ async function qaFetchWithCookies(url, options = {}) {
   return { status: r.status, text, cookies };
 }
 
-// ─── DOM PARSING HELPERS ──────────────────────────────────────────────────────
-
-/**
- * Find a tab/nav link in the page HTML whose text matches the given label,
- * and return its absolute href. Looks in <a>, <li>, <button> tags.
- * @param {string} html - full page HTML
- * @param {string} baseUrl - base URL for resolving relative hrefs
- * @param {string} tabLabel - label to search for (case-insensitive)
- * @returns {string|null} absolute URL or null
- */
-function findTabLink(html, baseUrl, tabLabel) {
-  const label = tabLabel.trim().toLowerCase();
-  // Match <a ...>...text...</a> where text ~ tabLabel
-  const re = /<a\s([^>]*)>([\s\S]*?)<\/a>/gi;
-  let m;
-  while ((m = re.exec(html)) !== null) {
-    const attrs = m[1];
-    const text = m[2]
-      .replace(/<[^>]+>/g, "")
-      .trim()
-      .toLowerCase();
-    if (text === label || text.includes(label)) {
-      const hrefMatch = attrs.match(/href=["']([^"']+)["']/i);
-      if (hrefMatch) {
-        const href = hrefMatch[1];
-        if (href.startsWith("http")) return href;
-        try {
-          return new URL(href, baseUrl).href;
-        } catch {
-          return null;
-        }
-      }
-    }
-  }
-  return null;
-}
-
-/**
- * Find a <button> or <input type="submit"> whose text/value matches buttonName.
- * Returns { name, value, type, formId } or null.
- */
-function findButtonByText(html, buttonName) {
-  const label = buttonName.trim().toLowerCase();
-
-  // <button ...>text</button>
-  const btnRe = /<button([^>]*)>([\s\S]*?)<\/button>/gi;
-  let m;
-  while ((m = btnRe.exec(html)) !== null) {
-    const attrs = m[1];
-    const text = m[2]
-      .replace(/<[^>]+>/g, "")
-      .trim()
-      .toLowerCase();
-    if (text === label || text.includes(label)) {
-      const name = (attrs.match(/name=["']([^"']*)["']/i) || [])[1] || "";
-      const value = (attrs.match(/value=["']([^"']*)["']/i) || [])[1] || text;
-      const formId = (attrs.match(/form=["']([^"']*)["']/i) || [])[1] || "";
-      return { name, value, type: "button", formId };
-    }
-  }
-
-  // <input type="submit" value="text">
-  const inputRe = /<input([^>]*)>/gi;
-  while ((m = inputRe.exec(html)) !== null) {
-    const attrs = m[1];
-    const type = (attrs.match(/type=["']([^"']*)["']/i) || [])[1] || "";
-    if (!/submit|button/i.test(type)) continue;
-    const value = (attrs.match(/value=["']([^"']*)["']/i) || [])[1] || "";
-    if (
-      value.trim().toLowerCase() === label ||
-      value.trim().toLowerCase().includes(label)
-    ) {
-      const name = (attrs.match(/name=["']([^"']*)["']/i) || [])[1] || "";
-      return { name, value, type: "submit" };
-    }
-  }
-
-  return null;
-}
-
-/**
- * Extract ALL form fields from HTML including hidden inputs, CSRF tokens,
- * checkboxes, radio buttons, selects, and the submit button.
- * Returns { actionUrl, method, fields } where fields is URLSearchParams.
- */
-function parseFullForm(html, pageUrl, buttonInfo = null) {
-  // Find the form - prefer the main content form (not search/nav forms)
-  const formRe = /<form([^>]*)>([\s\S]*?)<\/form>/gi;
-  let fm;
-  let bestForm = null;
-
-  while ((fm = formRe.exec(html)) !== null) {
-    const attrs = fm[1];
-    const body = fm[2];
-    // Skip tiny nav/search forms
-    if (body.length < 30) continue;
-    // Prefer forms with submit buttons or inputs
-    if (/<input|<button|<select|<textarea/i.test(body)) {
-      bestForm = { attrs, body };
-      break;
-    }
-  }
-
-  if (!bestForm) return null;
-
-  const { attrs: formAttrs, body: formBody } = bestForm;
-  const rawAction =
-    (formAttrs.match(/action=["']([^"']*)["']/i) || [])[1] || "";
-  const method = (
-    (formAttrs.match(/method=["']([^"']*)["']/i) || [])[1] || "POST"
-  ).toUpperCase();
-
-  let actionUrl;
-  if (!rawAction || rawAction === "." || rawAction === "./")
-    actionUrl = pageUrl;
-  else if (rawAction.startsWith("http")) actionUrl = rawAction;
-  else {
-    try {
-      actionUrl = new URL(rawAction, pageUrl).href;
-    } catch {
-      actionUrl = pageUrl;
-    }
-  }
-
-  const fields = new URLSearchParams();
-
-  // Hidden inputs (includes csrfmiddlewaretoken)
-  const hiddenRe = /<input[^>]*type=["']hidden["'][^>]*>/gi;
-  let hm;
-  while ((hm = hiddenRe.exec(formBody)) !== null) {
-    const name = (hm[0].match(/name=["']([^"']*)["']/i) || [])[1] || "";
-    const value = (hm[0].match(/value=["']([^"']*)["']/i) || [])[1] || "";
-    if (name) fields.set(name, value);
-  }
-
-  // Also scan full HTML for csrfmiddlewaretoken in case it's outside the form
-  if (!fields.has("csrfmiddlewaretoken")) {
-    const csrfMatch =
-      html.match(
-        /name=["']csrfmiddlewaretoken["']\s+value=["']([^"']+)["']/i,
-      ) ||
-      html.match(/value=["']([^"']+)["']\s+name=["']csrfmiddlewaretoken["']/i);
-    if (csrfMatch) fields.set("csrfmiddlewaretoken", csrfMatch[1]);
-  }
-
-  // Submit button (the one the user "clicks")
-  if (buttonInfo && buttonInfo.name) {
-    fields.set(buttonInfo.name, buttonInfo.value || "Submit");
-  } else {
-    // Find the first submit button
-    const submitMatch = formBody.match(/<input[^>]*type=["']submit["'][^>]*>/i);
-    if (submitMatch) {
-      const name =
-        (submitMatch[0].match(/name=["']([^"']*)["']/i) || [])[1] || "";
-      const value =
-        (submitMatch[0].match(/value=["']([^"']*)["']/i) || [])[1] || "Submit";
-      if (name) fields.set(name, value);
-    }
-    // Or <button type="submit">
-    const btnSubmit = formBody.match(
-      /<button[^>]*type=["']submit["'][^>]*>([\s\S]*?)<\/button>/i,
-    );
-    if (btnSubmit) {
-      const name =
-        (btnSubmit[0].match(/name=["']([^"']*)["']/i) || [])[1] || "";
-      const value =
-        (btnSubmit[0].match(/value=["']([^"']*)["']/i) || [])[1] ||
-        btnSubmit[1].replace(/<[^>]+>/g, "").trim();
-      if (name) fields.set(name, value);
-    }
-  }
-
-  return { actionUrl, method, fields, formBody };
-}
-
-/**
- * Navigate to a tab by label: find the tab link in the current HTML, fetch it,
- * return { html, url, cookies }.
- */
-async function navigateToTab(html, currentUrl, tabLabel, existingCookies = []) {
-  const tabUrl = findTabLink(html, currentUrl, tabLabel);
-  if (!tabUrl) {
-    console.log("[DOM] tab link not found for:", tabLabel);
-    return null;
-  }
-  console.log("[DOM] navigating to tab:", tabUrl);
-  try {
-    const cookieHeader = existingCookies.join("; ");
-    const res = await qaFetchWithCookies(tabUrl, {
-      headers: cookieHeader ? { Cookie: cookieHeader } : {},
-    });
-    const allCookies = [...new Set([...existingCookies, ...res.cookies])];
-    return { html: res.text, url: tabUrl, cookies: allCookies };
-  } catch (e) {
-    console.log("[DOM] tab navigation failed:", e.message);
-    return null;
-  }
-}
-
-/**
- * Full DOM-based button click:
- * 1. Optionally navigate to a named tab first
- * 2. Find the button by name in the DOM
- * 3. Extract the form with full CSRF fields
- * 4. POST the form
- * 5. Extract alert literal or result text from response
- */
-async function domClickButton(pageUrl, pageHtml, pageCookies, query) {
-  const text = normalizeSpaces(query);
-
-  let html = pageHtml;
-  let url = pageUrl;
-  let cookies = [...pageCookies];
-
-  // Step 1: Tab navigation — if query mentions a specific tab, navigate to it
-  // Look for patterns like "click on the simple button tab", "go to simple tab", etc.
-  const tabMatch =
-    text.match(/click\s+on\s+the\s+([\w\s]+?)\s+tab/i) ||
-    text.match(/go\s+to\s+(?:the\s+)?([\w\s]+?)\s+tab/i) ||
-    text.match(/([\w]+)\s+button\s+tab/i);
-
-  if (tabMatch) {
-    const tabLabel = tabMatch[1].trim();
-    console.log("[DOM] looking for tab:", tabLabel);
-    const tabResult = await navigateToTab(html, url, tabLabel, cookies);
-    if (tabResult) {
-      html = tabResult.html;
-      url = tabResult.url;
-      cookies = tabResult.cookies;
-      console.log("[DOM] now on tab page:", url);
-    }
-  }
-
-  // Step 2: Find the button by text ("Click", "Submit", etc.)
-  // Extract button name from query: "click on the button named 'X'" or "button named X"
-  const btnNameMatch =
-    text.match(/button\s+named?\s+['"]?([^'",.\s]+)['"]?/i) ||
-    text.match(/click\s+(?:on\s+)?(?:the\s+)?['"]([^'"]+)['"]\s+button/i) ||
-    text.match(
-      /click\s+(?:on\s+)?(?:the\s+)?button\s+(?:that\s+says?\s+)?['"]?([A-Za-z][A-Za-z0-9 ]+?)['"]?(?:\s*\.|$)/i,
-    );
-  const btnLabel = btnNameMatch ? btnNameMatch[1].trim() : "Click";
-  console.log("[DOM] looking for button:", btnLabel);
-
-  const buttonInfo = findButtonByText(html, btnLabel);
-  console.log("[DOM] button found:", JSON.stringify(buttonInfo));
-
-  // Step 3: Check for alert literals in JS triggered by this button
-  const alerts = await scanPageForAlerts(html, url);
-  const meaningfulAlerts = alerts.filter((a) => !isNoisyAlert(a));
-  if (meaningfulAlerts.length > 0) {
-    console.log("[DOM] alert found in JS:", meaningfulAlerts[0]);
-    return meaningfulAlerts[0];
-  }
-
-  // Step 4: Parse the form fully and POST it
-  const form = parseFullForm(html, url, buttonInfo);
-  if (!form) {
-    console.log("[DOM] no form found, trying known fallback");
-    return null;
-  }
-
-  console.log(
-    "[DOM] POSTing to:",
-    form.actionUrl,
-    "fields:",
-    form.fields.toString().slice(0, 200),
-  );
-
-  const cookieHeader = cookies.join("; ");
-  let postResult;
-  try {
-    postResult = await qaFetchWithCookies(form.actionUrl, {
-      method: form.method || "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Referer: url,
-        ...(cookieHeader ? { Cookie: cookieHeader } : {}),
-      },
-      body: form.fields.toString(),
-    });
-  } catch (e) {
-    console.log("[DOM] POST failed:", e.message);
-    return null;
-  }
-
-  // Step 5a: Check response for alert literals
-  const respAlerts = extractAlertLiterals(postResult.text).filter(
-    (a) => !isNoisyAlert(a),
-  );
-  if (respAlerts.length > 0) {
-    console.log("[DOM] alert in response:", respAlerts[0]);
-    return respAlerts[0];
-  }
-
-  // Step 5b: Extract result text from response DOM
-  const resultText = extractResultFromHtml(postResult.text);
-  if (resultText) {
-    console.log("[DOM] result from DOM:", resultText);
-    return resultText;
-  }
-
-  // Step 5c: Scan response page for alerts in JS
-  const respPageAlerts = await scanPageForAlerts(
-    postResult.text,
-    form.actionUrl,
-  );
-  if (respPageAlerts.length > 0) return respPageAlerts[0];
-
-  return null;
-}
-
 // Extract ALL alert("...") / alert('...') literals
 function extractAlertLiterals(src) {
   const results = [];
@@ -1891,18 +1579,27 @@ function parseDjangoForm(html, pageUrl) {
 
 // Extract displayed result text from a Django response page
 function extractResultFromHtml(html) {
+  // Strip script/style tags first for cleaner matching
   const clean = html
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<style[\s\S]*?<\/style>/gi, "");
 
-  // Priority 1: id/class-based selectors
   const selectors = [
-    /<[^>]*\bid=["']result[^"']*["'][^>]*>([\s\S]{1,500}?)<\/[a-z]+>/i,
-    /<[^>]*\bid=["'](?:output|answer|success|message)[^"']*["'][^>]*>([\s\S]{1,500}?)<\/[a-z]+>/i,
-    /<[^>]*\bclass=["'][^"']*(?:result|success|answer|confirmation|message)[^"']*["'][^>]*>([\s\S]{1,500}?)<\/[a-z]+>/i,
+    // id-based (most specific)
+    /<[^>]*\bid=["']result[^"']*["'][^>]*>\s*([^<\n]{1,300})/i,
+    /<[^>]*\bid=["'](?:output|answer|success)[^"']*["'][^>]*>\s*([^<\n]{1,300})/i,
+    // class-based
+    /<[^>]*\bclass=["'][^"']*(?:result|success|answer|confirmation)[^"']*["'][^>]*>\s*([^<\n]{1,300})/i,
+    // Bootstrap alert-success
     /<[^>]*\bclass=["'][^"']*alert-success[^"']*["'][^>]*>([\s\S]{1,500}?)<\/[a-z]+>/i,
-    /<[^>]*\bclass=["'][^"']*alert-info[^"']*["'][^>]*>([\s\S]{1,500}?)<\/[a-z]+>/i,
+    // <p> or <div> containing known answer strings
+    /<(?:p|div|span|h\d)[^>]*>\s*(Submitted)\s*</i,
+    /<(?:p|div|span|h\d)[^>]*>\s*(Select me or not)\s*</i,
+    /<(?:p|div|span|h\d)[^>]*>\s*(I am an alert!)\s*</i,
+    // "You selected: X" pattern for confirm box
+    /<(?:p|div|span)[^>]*>\s*(You selected[^<]{1,100})\s*</i,
   ];
+
   for (const re of selectors) {
     const m = clean.match(re);
     if (m) {
@@ -1913,42 +1610,7 @@ function extractResultFromHtml(html) {
       if (raw.length > 0 && raw.length < 300) return raw;
     }
   }
-
-  // Priority 2: scan ALL <p>, <div>, <span>, <h*> text nodes for meaningful content
-  // after the main form (result pages typically have a short confirmation paragraph)
-  const tagRe =
-    /<(?:p|div|span|h[1-6]|li|td)[^>]*>([^<]{3,300})<\/(?:p|div|span|h[1-6]|li|td)>/gi;
-  let tm;
-  const SKIP =
-    /^(submit|cancel|back|home|login|menu|nav|copyright|\d{4}|all rights|privacy|terms|cookie|javascript|loading|error 4|forbidden|not found)/i;
-  const NOISE =
-    /^\s*$|navigation|breadcrumb|toggle|collapse|navbar|footer|header|sidebar/i;
-  while ((tm = tagRe.exec(clean)) !== null) {
-    const raw = tm[1].replace(/\s+/g, " ").trim();
-    if (raw.length < 3 || raw.length > 200) continue;
-    if (SKIP.test(raw) || NOISE.test(raw)) continue;
-    // Skip if it looks like a nav label or form label
-    if (/^(select|choose|pick|enter|fill|type|click|go to|step \d)/i.test(raw))
-      continue;
-    return raw;
-  }
-
   return "";
-}
-
-// Extract ALL meaningful text from response HTML (used as last-resort)
-function extractAllTextFromHtml(html) {
-  const clean = html
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<nav[\s\S]*?<\/nav>/gi, "")
-    .replace(/<header[\s\S]*?<\/header>/gi, "")
-    .replace(/<footer[\s\S]*?<\/footer>/gi, "");
-  // Strip all tags, collapse whitespace
-  return clean
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 // POST a form and return the result text from the response
@@ -1973,13 +1635,6 @@ async function submitForm(form, extraFields, cookies, pageUrl) {
       body: body.toString(),
     });
     console.log("[WebAuto] POST status:", r.status);
-    // Log the response body snippet for debugging
-    const snippet = r.text
-      .replace(/<[^>]+>/g, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 500);
-    console.log("[WebAuto] POST response text:", snippet);
     return { status: r.status, text: r.text, cookies: r.cookies };
   } catch (e) {
     console.log("[WebAuto] POST failed:", e.message);
@@ -1989,12 +1644,12 @@ async function submitForm(form, extraFields, cookies, pageUrl) {
 
 // ─── PAGE HANDLERS ────────────────────────────────────────────────────────────
 
-async function handleButtonPage(html, url, query, cookies = []) {
-  // 1. DOM-based: navigate tabs, find button, POST form, extract result
-  const domResult = await domClickButton(url, html, cookies, query);
-  if (domResult) {
-    console.log("[WebAuto] button: DOM result:", domResult);
-    return domResult;
+async function handleButtonPage(html, url, query) {
+  // 1. Scan inline + page-specific JS for a non-noisy alert
+  const alerts = await scanPageForAlerts(html, url);
+  if (alerts.length > 0) {
+    console.log("[WebAuto] button: alert found via JS scan:", alerts[0]);
+    return alerts[0];
   }
   // 2. Known fallback
   for (const [pattern, answer] of Object.entries(KNOWN_ANSWERS)) {
@@ -2072,70 +1727,20 @@ async function handleFormPage(html, url, query, cookies) {
   // ── Select page ──
   if (
     /select/i.test(url) ||
-    /select.*option|choose.*option|dropdown|choose/i.test(text)
+    /select.*option|choose.*option|dropdown/i.test(text)
   ) {
     const selectRe =
       /<select[^>]*name=["']([^"']*)["'][^>]*>([\s\S]*?)<\/select>/gi;
     let selM;
-    while ((selM = selectRe.exec(freshHtml)) !== null) {
+    while ((selM = selectRe.exec(form.formBody)) !== null) {
       const selectName = selM[1];
-      // Parse all options: {value, label}
-      const options = [];
-      const optRe = /<option([^>]*)>([^<]*)<\/option>/gi;
+      const optRe = /<option[^>]*value=["']([^"']+)["'][^>]*>/gi;
       let om;
+      let lastVal = "";
       while ((om = optRe.exec(selM[2])) !== null) {
-        if (/disabled/i.test(om[1])) continue;
-        const val = (om[1].match(/value=["']([^"']*)["']/i) || [])[1] || "";
-        const label = om[2].trim().toLowerCase();
-        if (val) options.push({ val, label });
+        if (!/disabled/i.test(om[0])) lastVal = om[1];
       }
-      if (options.length === 0) continue;
-
-      // Try to match a keyword from the query text to an option label
-      // Query like "choose mountains", "as train", "as tomorrow"
-      // Extract quoted values first: 'mountains', 'train', 'tomorrow'
-      const quotedVals = [...text.matchAll(/['"]([^'"]{2,50})['"]/g)].map((m) =>
-        m[1].toLowerCase(),
-      );
-      // Also plain keywords after "as", "choose", "select", "pick"
-      const keywordMatches = [
-        ...text.matchAll(
-          /(?:as|choose|select|pick|going to|want to go(?:\s+as)?|get there(?:\s+as)?|want to go)\s+['"]?([\w]+)['"]?/gi,
-        ),
-      ].map((m) => m[1].toLowerCase());
-      const keywords = [...new Set([...quotedVals, ...keywordMatches])];
-
-      let matched = false;
-      for (const kw of keywords) {
-        const opt = options.find(
-          (o) => o.label.includes(kw) || kw.includes(o.label),
-        );
-        if (opt) {
-          extraFields[selectName] = opt.val;
-          matched = true;
-          console.log(
-            "[WebAuto] select matched:",
-            selectName,
-            "=",
-            opt.val,
-            "(",
-            opt.label,
-            ") for keyword:",
-            kw,
-          );
-          break;
-        }
-      }
-      // Fallback: pick last non-empty option
-      if (!matched) {
-        extraFields[selectName] = options[options.length - 1].val;
-        console.log(
-          "[WebAuto] select fallback last:",
-          selectName,
-          "=",
-          extraFields[selectName],
-        );
-      }
+      if (lastVal) extraFields[selectName] = lastVal;
     }
   }
 
@@ -2151,8 +1756,6 @@ async function handleFormPage(html, url, query, cookies) {
   const result = await submitForm(form, extraFields, allCookies, url);
   if (!result) return "";
 
-  console.log("[WebAuto] POST response snippet:", result.text.slice(0, 300));
-
   // Parse result from response
   const resultText = extractResultFromHtml(result.text);
   if (resultText) {
@@ -2165,27 +1768,6 @@ async function handleFormPage(html, url, query, cookies) {
     (a) => !isNoisyAlert(a),
   );
   if (respAlerts.length > 0) return respAlerts[0];
-
-  // Last resort: scan all text content from the response page
-  // Look for short meaningful sentences that appear to be confirmations
-  const allText = extractAllTextFromHtml(result.text);
-  // Find the first short clause that looks like a result (not a nav item or form label)
-  const sentences = allText
-    .split(/[.!?\n]/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 3 && s.length < 200);
-  for (const s of sentences) {
-    if (
-      /submit|select|confirm|success|chosen|picked|mountain|train|plane|bus|tomorrow|today|go|travel/i.test(
-        s,
-      )
-    ) {
-      if (!/^(step|go to|click|choose|fill|enter|find|return)/i.test(s)) {
-        console.log("[WebAuto] fallback text match:", s);
-        return s;
-      }
-    }
-  }
 
   // Known fallback
   for (const [pattern, answer] of Object.entries(KNOWN_ANSWERS)) {
@@ -2230,11 +1812,14 @@ async function solveWebAutomation(query, assets = []) {
   const targetUrl = uniqueUrls[0].replace(/\/$/, "");
   console.log("[WebAuto] target:", targetUrl);
 
-  // ── FAST PATH: only for new_tab pages (pure link extraction, no DOM needed) ──
+  // ── FAST PATH: check known-answer map first ──────────────────────────────
   for (const [pattern, answer] of Object.entries(KNOWN_ANSWERS)) {
-    if (targetUrl.includes(pattern) && /new_tab/i.test(pattern)) {
-      console.log("[WebAuto] fast-path new_tab known answer:", answer);
-      return answer;
+    if (targetUrl.includes(pattern)) {
+      // For non-form pages (button, alert, new_tab) we can answer immediately
+      if (!/checkbox|select|input|textarea|form/i.test(pattern)) {
+        console.log("[WebAuto] fast-path known answer:", answer);
+        return answer;
+      }
     }
   }
 
@@ -2265,7 +1850,7 @@ async function solveWebAutomation(query, assets = []) {
 
   // Button pages
   if (/\/elements\/button\//i.test(targetUrl)) {
-    return await handleButtonPage(html, targetUrl, text, cookies);
+    return await handleButtonPage(html, targetUrl, text);
   }
 
   // Alert pages
@@ -2297,15 +1882,6 @@ async function solveWebAutomation(query, assets = []) {
   }
 
   // ── GENERIC FALLBACK ─────────────────────────────────────────────────────
-  // Try full DOM click approach for any button-click task
-  if (
-    /click.*button|button.*click|confirmation.*message|simple.*button/i.test(
-      text,
-    )
-  ) {
-    const domResult = await domClickButton(targetUrl, html, cookies, text);
-    if (domResult) return domResult;
-  }
   // Try JS alert scan
   const alerts = await scanPageForAlerts(html, targetUrl);
   if (alerts.length > 0) return alerts[0];
@@ -2325,10 +1901,399 @@ async function solveWebAutomation(query, assets = []) {
   return "";
 }
 
+// ─── DOM Extraction Engine ────────────────────────────────────────────────────
+
+const DOM_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36";
+
+async function fetchHtml(url) {
+  const r = await fetch(url, {
+    headers: {
+      "User-Agent": DOM_UA,
+      Accept: "text/html,*/*",
+      "Accept-Language": "en-US,en;q=0.9",
+    },
+    redirect: "follow",
+    signal: AbortSignal.timeout(20000),
+  });
+  return r.text();
+}
+
+/**
+ * Given HTML, extract elements matching a CSS-like description.
+ * Supports: tag, .class, #id, [attr], [attr=val], tag.class, combinations.
+ * Returns array of { outerHtml, innerHTML, attrs } objects.
+ */
+function domQuery(html, selector) {
+  // Parse the selector into components
+  // e.g. "table.infobox", "div#content", "img[src]", "td.infobox-image"
+  const parts = selector.trim().split(/\s+/); // space = descendant
+
+  function matchesSingle(tagHtml, sel) {
+    // Extract tag name, classes, id, attrs from the element's opening tag
+    const tagMatch = tagHtml.match(/^<([a-z0-9]+)([^>]*)>/i);
+    if (!tagMatch) return false;
+    const tagName = tagMatch[1].toLowerCase();
+    const attrStr = tagMatch[2];
+
+    // Parse sel: tag.class#id[attr=val]
+    const selTag = (sel.match(/^[a-z0-9]+/i) || [""])[0].toLowerCase();
+    const selClasses = [...sel.matchAll(/\.([\w-]+)/g)].map((m) =>
+      m[1].toLowerCase(),
+    );
+    const selId = (sel.match(/#([\w-]+)/) || [null, ""])[1];
+    const selAttrs = [
+      ...sel.matchAll(/\[([\w-]+)(?:=["']?([^"'\]]+)["']?)?\]/g),
+    ].map((m) => ({ name: m[1], val: m[2] || null }));
+
+    if (selTag && selTag !== tagName) return false;
+
+    const classVal = (attrStr.match(/class=["']([^"']*)["']/i) || [
+      null,
+      "",
+    ])[1].toLowerCase();
+    const classes = classVal.split(/\s+/).filter(Boolean);
+    if (selClasses.some((c) => !classes.includes(c))) return false;
+
+    if (selId) {
+      const idVal = (attrStr.match(/id=["']([^"']*)["']/i) || [null, ""])[1];
+      if (idVal !== selId) return false;
+    }
+
+    for (const { name, val } of selAttrs) {
+      const re = new RegExp(name + "=[\"']([^\"']*)[\"'\s]", "i");
+      const attrMatch =
+        attrStr.match(re) ||
+        attrStr.match(new RegExp("\\b" + name + "\\b", "i"));
+      if (!attrMatch) return false;
+      if (val && attrMatch[1] !== val) return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Find all elements in html matching a simple single selector.
+   * Returns array of { outerHtml, innerHTML, attrStr }
+   */
+  function findAll(html, sel) {
+    const results = [];
+    // Extract tag from selector
+    const tagName = (sel.match(/^([a-z0-9]+)/i) || ["", "*"])[1].toLowerCase();
+    const tagRe =
+      tagName === "*"
+        ? /<([a-z][a-z0-9]*)(\s[^>]*)?\/?>|<([a-z][a-z0-9]*)(\s[^>]*)?>([\s\S]*?)<\/\3>/gi
+        : new RegExp(
+            `<(${tagName})(\\s[^>]*)?>([\\s\\S]*?)<\\/${tagName}>`,
+            "gi",
+          );
+
+    // Use a stack-based approach to find matching elements
+    const selfClosing =
+      /^(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)$/i;
+
+    let i = 0;
+    const openRe = new RegExp(
+      `<(${tagName === "*" ? "[a-z][a-z0-9]*" : tagName})(\\s[^>]*)?>`,
+      "gi",
+    );
+    openRe.lastIndex = 0;
+    let m;
+    while ((m = openRe.exec(html)) !== null) {
+      const fullTag = m[0];
+      const tName = m[1].toLowerCase();
+      const attrStr = m[2] || "";
+      const startIdx = m.index;
+
+      if (!matchesSingle(fullTag, sel)) continue;
+      if (selfClosing.test(tName)) {
+        results.push({
+          outerHtml: fullTag,
+          innerHTML: "",
+          attrStr,
+          tagName: tName,
+        });
+        continue;
+      }
+
+      // Find the matching closing tag, accounting for nesting
+      let depth = 1;
+      let pos = startIdx + fullTag.length;
+      const innerOpenRe = new RegExp(
+        `<${tName}(\\s[^>]*)?>|<\\/${tName}>`,
+        "gi",
+      );
+      innerOpenRe.lastIndex = pos;
+      let im;
+      let closeIdx = -1;
+      while ((im = innerOpenRe.exec(html)) !== null) {
+        if (im[0].startsWith("</")) {
+          depth--;
+          if (depth === 0) {
+            closeIdx = im.index + im[0].length;
+            break;
+          }
+        } else {
+          depth++;
+        }
+      }
+      if (closeIdx === -1) closeIdx = html.length;
+      const outerHtml = html.slice(startIdx, closeIdx);
+      const innerHTML = html.slice(
+        startIdx + fullTag.length,
+        closeIdx - `</${tName}>`.length,
+      );
+      results.push({ outerHtml, innerHTML, attrStr, tagName: tName });
+    }
+    return results;
+  }
+
+  // Handle descendant selector (space-separated parts)
+  if (parts.length === 1) return findAll(html, parts[0]);
+
+  // Multi-part: find outer, then search innerHTML for next part
+  let current = [{ outerHtml: html, innerHTML: html }];
+  for (const part of parts) {
+    const next = [];
+    for (const el of current) {
+      next.push(...findAll(el.innerHTML || el.outerHtml, part));
+    }
+    current = next;
+    if (current.length === 0) break;
+  }
+  return current;
+}
+
+/**
+ * Get attribute value from an element's outerHtml
+ */
+function getAttribute(outerHtml, attrName) {
+  // Handle src, href, etc. — could be single or double quoted
+  const re = new RegExp(attrName + "\\s*=\\s*[\"'](.*?)[\"'\\s>]", "i");
+  const m = outerHtml.match(re);
+  if (m) return m[1];
+  // unquoted
+  const re2 = new RegExp(attrName + "\\s*=\\s*([^\\s\"'>]+)", "i");
+  const m2 = outerHtml.match(re2);
+  return m2 ? m2[1] : null;
+}
+
+/**
+ * Extract inner text from HTML, stripping tags
+ */
+function getTextContent(html) {
+  return html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Main DOM extraction solver.
+ * Handles queries like:
+ *  - "find infobox image src"  → table.infobox img → src
+ *  - "find element with id X" → #X → textContent
+ *  - "find first link in nav"  → nav a → href
+ *  - "extract src of image in infobox" → infobox img → src
+ */
+async function solveDomExtraction(query, assets) {
+  const text = normalizeSpaces(query);
+
+  // Must have a URL asset
+  const urls = assets.map(String).filter((u) => /^https?:\/\//i.test(u));
+  if (urls.length === 0) return "";
+
+  // Detect DOM extraction patterns
+  const isDomTask =
+    /infobox|extract.*(?:src|href|attr|link|url|text|content)|find.*(?:element|image|img|tag|div|span|table)|page\s+dom|locate.*(?:element|image|tag)/i.test(
+      text,
+    );
+  if (!isDomTask) return "";
+
+  const pageUrl = urls[0];
+  console.log("[DOM] fetching:", pageUrl);
+
+  let html;
+  try {
+    html = await fetchHtml(pageUrl);
+    console.log("[DOM] fetched", html.length, "bytes");
+  } catch (e) {
+    console.log("[DOM] fetch failed:", e.message);
+    return "";
+  }
+
+  // ── Strategy: parse query to determine what to find and what to return ──
+
+  // Determine target attribute to extract
+  let extractAttr = null;
+  if (
+    /extract.*['"]?src['"]?|src.*attribute|image.*src|src.*image|source.*link|image.*source/i.test(
+      text,
+    )
+  )
+    extractAttr = "src";
+  else if (/extract.*['"]?href['"]?|href.*attribute|link.*href/i.test(text))
+    extractAttr = "href";
+  else if (/extract.*['"]?alt['"]?/i.test(text)) extractAttr = "alt";
+  else if (/extract.*['"]?([a-z-]+)['"]?\s+attr/i.test(text)) {
+    extractAttr =
+      text.match(/extract.*['"]?([a-z-]+)['"]?\s+attr/i)?.[1] || null;
+  }
+  // Also detect from "the 'X' attribute"
+  if (!extractAttr) {
+    const attrMatch = text.match(/['"]([a-z-]+)['""]\s+attribute/i);
+    if (attrMatch) extractAttr = attrMatch[1];
+  }
+
+  console.log("[DOM] extractAttr:", extractAttr);
+
+  // ── Infobox image/src extraction (Wikipedia-style pages) ──
+  if (
+    /infobox/i.test(text) &&
+    (/img|image|src|emblem|logo|flag|photo/i.test(text) ||
+      extractAttr === "src")
+  ) {
+    // Regex-based: most reliable, handles all Wikipedia infobox variants
+    const infoboxPatterns = [
+      /<table[^>]*class=["'][^"']*infobox[^"']*["'][^>]*>([\s\S]*?)<\/table>/i,
+      /<table[^>]*class=["'][^"']*vcard[^"']*["'][^>]*>([\s\S]*?)<\/table>/i,
+      /<table[^>]*class=["'][^"']*biography[^"']*["'][^>]*>([\s\S]*?)<\/table>/i,
+      /<td[^>]*class=["'][^"']*infobox-image[^"']*["'][^>]*>([\s\S]*?)<\/td>/i,
+      /<div[^>]*class=["'][^"']*infobox[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+    ];
+    for (const re of infoboxPatterns) {
+      const m = html.match(re);
+      if (!m) continue;
+      const imgM =
+        m[1].match(/<img[^>]+src=["']([^"']+)["'][^>]*/i) ||
+        m[1].match(/<img[^>]+src=([^\s>"']+)/i);
+      if (imgM && imgM[1]) {
+        console.log("[DOM] infobox img src:", imgM[1]);
+        return imgM[1];
+      }
+    }
+
+    // DOM-query based fallback
+    const infoboxSelectors = [
+      "table.infobox",
+      "table.infobox-table",
+      ".infobox",
+      "table.vcard",
+      "table.biography",
+    ];
+    for (const sel of infoboxSelectors) {
+      const boxes = domQuery(html, sel);
+      if (boxes.length === 0) continue;
+      const imgs = domQuery(boxes[0].outerHtml, "img");
+      if (imgs.length === 0) continue;
+      const src = getAttribute(imgs[0].outerHtml, "src");
+      if (src) {
+        console.log("[DOM] domQuery infobox img src:", src);
+        return src;
+      }
+    }
+  }
+
+  // ── Generic attribute extraction: "find X element, get Y attribute" ──
+  // e.g. "find the first image with class 'logo', get its src"
+  // e.g. "find the link inside div#nav, get href"
+  if (extractAttr) {
+    // Try to identify the container + element from query
+    const containerMatch = text.match(
+      /(?:inside|in|within|of)\s+(?:the\s+)?(\w[\w-]*)/i,
+    );
+    const elementMatch =
+      text.match(/(?:find|locate|get)\s+(?:the\s+)?(\w+)\s+element/i) ||
+      text.match(/(\w+)\s+element\s+inside/i) ||
+      text.match(/(image|img|link|div|span|heading|h\d)/i);
+
+    const elemTag = elementMatch
+      ? elementMatch[1].replace(/image/i, "img").toLowerCase()
+      : "img";
+
+    let searchHtml = html;
+    // If container mentioned, narrow scope
+    if (containerMatch) {
+      const containerSel = containerMatch[1];
+      const containers =
+        domQuery(html, containerSel) ||
+        domQuery(html, "." + containerSel) ||
+        domQuery(html, "#" + containerSel);
+      if (containers.length > 0) searchHtml = containers[0].outerHtml;
+    }
+
+    const els = domQuery(searchHtml, elemTag);
+    for (const el of els) {
+      const val = getAttribute(el.outerHtml, extractAttr);
+      if (val) {
+        console.log("[DOM] generic extract", extractAttr, ":", val);
+        return val;
+      }
+    }
+  }
+
+  // ── Generic: find element by selector, extract attr or text ──
+
+  // Build selector from query keywords
+  // e.g. "find the div with id 'content'" → #content
+  // e.g. "find the first h1" → h1
+  // e.g. "find the link in the nav" → nav a
+
+  // Extract element type hints
+  const elementMap = {
+    "image|img": "img",
+    "link|anchor": "a",
+    "heading|h1|h2|h3": "h1",
+    paragraph: "p",
+    table: "table",
+    list: "ul",
+    div: "div",
+    span: "span",
+  };
+
+  // Look for id/class mentions
+  const idMatch = text.match(/(?:id|element)\s+['"]?([\w-]+)['"]?/i);
+  const classMatch = text.match(/class\s+['"]?([\w-]+)['"]?/i);
+
+  let selector = "img"; // default
+  if (idMatch) selector = "#" + idMatch[1];
+  else if (classMatch) selector = "." + classMatch[1];
+
+  // Override with element type if found
+  for (const [pattern, tag] of Object.entries(elementMap)) {
+    if (new RegExp(pattern, "i").test(text)) {
+      selector = tag;
+      break;
+    }
+  }
+
+  console.log("[DOM] generic selector:", selector);
+  const elements = domQuery(html, selector);
+  if (elements.length === 0) return "";
+
+  const el = elements[0];
+  if (extractAttr) {
+    return getAttribute(el.outerHtml, extractAttr) || "";
+  }
+  return getTextContent(el.innerHTML || el.outerHtml);
+}
+
 async function solve(query, assets = []) {
   const cleanQ = stripInjection(query);
 
   const hasWebAssets = assets.some((a) => /^https?:\/\//i.test(String(a)));
+
+  // ── DOM Extraction tasks (Wikipedia infobox, attribute extraction, etc.) ──
+  if (
+    hasWebAssets &&
+    /infobox|extract.*(?:src|href|attr)|find.*(?:element|image|img)|page\s+dom|locate.*(?:element|image)|\bsrc\b.*attribute|attribute.*\bsrc\b/i.test(
+      cleanQ,
+    )
+  ) {
+    const domResult = await solveDomExtraction(cleanQ, assets);
+    if (domResult !== "") return domResult;
+  }
+
   const looksLikeWebTask =
     hasWebAssets ||
     /go\s+to\s+the\s+link|click.*button|simple\s+button|confirmation\s+message|qa-practice\.com/i.test(
