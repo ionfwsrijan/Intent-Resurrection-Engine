@@ -2065,17 +2065,59 @@ function domQuery(html, selector) {
 }
 
 /**
- * Get attribute value from an element's outerHtml
+ * Get attribute value from an element's outerHtml.
+ * For src: skips base64/data URIs and checks data-src, data-lazy-src, srcset fallbacks.
  */
 function getAttribute(outerHtml, attrName) {
-  // Handle src, href, etc. — could be single or double quoted
-  const re = new RegExp(attrName + "\\s*=\\s*[\"'](.*?)[\"'\\s>]", "i");
-  const m = outerHtml.match(re);
-  if (m) return m[1];
-  // unquoted
-  const re2 = new RegExp(attrName + "\\s*=\\s*([^\\s\"'>]+)", "i");
-  const m2 = outerHtml.match(re2);
-  return m2 ? m2[1] : null;
+  // Extract a named attribute value, handling both quote styles
+  function extractAttr(html, name) {
+    // Match name="value" or name='value'
+    const dq = html.indexOf(name + '="');
+    if (dq !== -1) {
+      const vs = dq + name.length + 2;
+      const ve = html.indexOf('"', vs);
+      if (ve !== -1) return html.slice(vs, ve);
+    }
+    const sq = html.indexOf(name + "='");
+    if (sq !== -1) {
+      const vs = sq + name.length + 2;
+      const ve = html.indexOf("'", vs);
+      if (ve !== -1) return html.slice(vs, ve);
+    }
+    return null;
+  }
+
+  if (attrName === "src") {
+    // 1. data-src (Wikipedia lazy loading — real URL)
+    const dataSrc = extractAttr(outerHtml, "data-src");
+    if (dataSrc && !dataSrc.startsWith("data:")) return dataSrc;
+
+    // 2. data-lazy-src
+    const dataLazySrc = extractAttr(outerHtml, "data-lazy-src");
+    if (dataLazySrc && !dataLazySrc.startsWith("data:")) return dataLazySrc;
+
+    // 3. src if not base64 placeholder
+    const src = extractAttr(outerHtml, " src");
+    if (src && !src.startsWith("data:")) return src;
+
+    // 4. first URL in srcset
+    const srcset = extractAttr(outerHtml, "srcset");
+    if (srcset) {
+      const firstUrl = srcset.trim().split(/[,\s]+/)[0];
+      if (
+        firstUrl &&
+        (firstUrl.startsWith("//") || firstUrl.startsWith("http"))
+      )
+        return firstUrl;
+    }
+    return src || null;
+  }
+
+  const val = extractAttr(outerHtml, attrName);
+  if (val !== null) return val;
+  // Try with space prefix to avoid partial matches
+  const val2 = extractAttr(outerHtml, " " + attrName);
+  return val2;
 }
 
 /**
@@ -2164,12 +2206,28 @@ async function solveDomExtraction(query, assets) {
     for (const re of infoboxPatterns) {
       const m = html.match(re);
       if (!m) continue;
-      const imgM =
-        m[1].match(/<img[^>]+src=["']([^"']+)["'][^>]*/i) ||
-        m[1].match(/<img[^>]+src=([^\s>"']+)/i);
-      if (imgM && imgM[1]) {
+      // Try data-src first (lazy loading), then src (skip base64)
+      const dataSrcM = m[1].match(/<img[^>]+data-src=["']([^"']+)["'][^>]*/i);
+      if (dataSrcM && !dataSrcM[1].startsWith("data:")) {
+        console.log("[DOM] infobox img data-src:", dataSrcM[1]);
+        return dataSrcM[1];
+      }
+      const imgM = m[1].match(/<img[^>]+src=["']([^"']+)["'][^>]*/i);
+      if (imgM && imgM[1] && !imgM[1].startsWith("data:")) {
         console.log("[DOM] infobox img src:", imgM[1]);
         return imgM[1];
+      }
+      // Fallback: srcset first URL
+      const srcsetM = m[1].match(/<img[^>]+srcset=["']([^"']+)["'][^>]*/i);
+      if (srcsetM) {
+        const firstUrl = srcsetM[1].trim().split(/[,\s]+/)[0];
+        if (
+          firstUrl &&
+          (firstUrl.startsWith("//") || firstUrl.startsWith("http"))
+        ) {
+          console.log("[DOM] infobox img srcset first:", firstUrl);
+          return firstUrl;
+        }
       }
     }
 
