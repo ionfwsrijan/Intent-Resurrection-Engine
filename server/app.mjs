@@ -2071,53 +2071,54 @@ function domQuery(html, selector) {
 function getAttribute(outerHtml, attrName) {
   // Extract a named attribute value, handling both quote styles
   function extractAttr(html, name) {
-    // Match name="value" or name='value'
-    const dq = html.indexOf(name + '="');
-    if (dq !== -1) {
-      const vs = dq + name.length + 2;
-      const ve = html.indexOf('"', vs);
-      if (ve !== -1) return html.slice(vs, ve);
-    }
-    const sq = html.indexOf(name + "='");
-    if (sq !== -1) {
-      const vs = sq + name.length + 2;
-      const ve = html.indexOf("'", vs);
-      if (ve !== -1) return html.slice(vs, ve);
-    }
-    return null;
+    // Match name="value" or name='value' (with optional whitespace around '=')
+    const re = new RegExp(
+      `(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`,
+      "i",
+    );
+    const m = html.match(re);
+    if (!m) return null;
+    return m[1] ?? m[2] ?? null;
+  }
+
+  // Normalize protocol-relative URLs as-is (expected output uses //upload.wikimedia.org/...)
+  function normalizeUrl(val) {
+    if (!val) return val;
+    return String(val).trim();
   }
 
   if (attrName === "src") {
-    // 1. data-src (Wikipedia lazy loading — real URL)
+    // 1) data-src (Wikipedia lazy loading — real URL)
     const dataSrc = extractAttr(outerHtml, "data-src");
-    if (dataSrc && !dataSrc.startsWith("data:")) return dataSrc;
+    if (dataSrc && !dataSrc.startsWith("data:")) return normalizeUrl(dataSrc);
 
-    // 2. data-lazy-src
+    // 2) data-lazy-src
     const dataLazySrc = extractAttr(outerHtml, "data-lazy-src");
-    if (dataLazySrc && !dataLazySrc.startsWith("data:")) return dataLazySrc;
+    if (dataLazySrc && !dataLazySrc.startsWith("data:"))
+      return normalizeUrl(dataLazySrc);
 
-    // 3. src if not base64 placeholder
-    const src = extractAttr(outerHtml, " src");
-    if (src && !src.startsWith("data:")) return src;
+    // 3) src (handle when it's the first attribute too)
+    const src = extractAttr(outerHtml, "src");
+    if (src && !src.startsWith("data:")) return normalizeUrl(src);
 
-    // 4. first URL in srcset
+    // 4) first URL in srcset
     const srcset = extractAttr(outerHtml, "srcset");
     if (srcset) {
       const firstUrl = srcset.trim().split(/[,\s]+/)[0];
       if (
         firstUrl &&
         (firstUrl.startsWith("//") || firstUrl.startsWith("http"))
-      )
-        return firstUrl;
+      ) {
+        return normalizeUrl(firstUrl);
+      }
     }
-    return src || null;
+
+    return normalizeUrl(src) || null;
   }
 
   const val = extractAttr(outerHtml, attrName);
-  if (val !== null) return val;
-  // Try with space prefix to avoid partial matches
-  const val2 = extractAttr(outerHtml, " " + attrName);
-  return val2;
+  if (val !== null) return normalizeUrl(val);
+  return null;
 }
 
 /**
