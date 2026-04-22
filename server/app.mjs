@@ -333,7 +333,56 @@ function tryParseJsonFromText(text) {
   }
 }
 
+function solvePolynomialGcd(query) {
+  // Match: p(x) = product of (x-a) factors, q(x) = product of (x-b) factors
+  // Find all root sets and count common roots = degree of GCD
+  const text = normalizeSpaces(query);
+  if (!/gcd\s*\(\s*p|degree.*gcd|gcd.*polynomial/i.test(text)) return "";
+
+  // Extract all (x-N) or (x+N) factors for each polynomial
+  function extractRoots(polyStr) {
+    const roots = [];
+    const re = /\(x\s*([+-])\s*(\d+)\)/g;
+    let m;
+    while ((m = re.exec(polyStr)) !== null) {
+      // (x - N) means root is +N, (x + N) means root is -N
+      roots.push(m[1] === "-" ? Number(m[2]) : -Number(m[2]));
+    }
+    return roots;
+  }
+
+  // Split into p(x) and q(x) parts
+  // Look for "p(x) = ... q(x) = ..." pattern
+  const pMatch = text.match(/p\s*\(x\)\s*=\s*([\s\S]+?)(?=\s+q\s*\(x\)\s*=)/i);
+  const qMatch = text.match(
+    /q\s*\(x\)\s*=\s*([\s\S]+?)(?=\s+(?:Compute|Find|What|Output|over|degree))/i,
+  );
+
+  if (!pMatch || !qMatch) return "";
+
+  const pRoots = extractRoots(pMatch[1]);
+  const qRoots = extractRoots(qMatch[1]);
+
+  if (pRoots.length === 0 || qRoots.length === 0) return "";
+
+  // Count common roots (with multiplicity — but for simple cases just intersection)
+  const qSet = new Map();
+  qRoots.forEach((r) => qSet.set(r, (qSet.get(r) || 0) + 1));
+  let common = 0;
+  const pCount = new Map();
+  pRoots.forEach((r) => pCount.set(r, (pCount.get(r) || 0) + 1));
+  for (const [root, count] of pCount) {
+    if (qSet.has(root)) common += Math.min(count, qSet.get(root));
+  }
+
+  return String(common);
+}
+
 function solveLocal(query) {
+  // Try polynomial GCD first
+  const polyResult = solvePolynomialGcd(query);
+  if (polyResult !== "") return polyResult;
+
   const text = normalizeSpaces(query);
 
   if (/\bodd\b|\beven\b/i.test(text) && /\bnumber\b/i.test(text)) {
@@ -702,7 +751,7 @@ async function solveWithLlm(query, assets = []) {
     if (start !== -1 && end !== -1) {
       const parsed = JSON.parse(result.slice(start, end + 1));
       if (parsed.answer !== undefined) {
-        return String(parsed.answer).trim();
+        return stripVerbose(String(parsed.answer).trim());
       }
     }
   } catch (e) {
@@ -716,9 +765,33 @@ async function solveWithLlm(query, assets = []) {
 
   // Fallback: extract answer field from raw text
   const answerMatch = result.match(/"answer"\s*:\s*"([^"]+)"/);
-  if (answerMatch) return answerMatch[1].trim();
+  if (answerMatch) return stripVerbose(answerMatch[1].trim());
 
-  return result.trim();
+  return stripVerbose(result.trim());
+}
+
+function stripVerbose(answer) {
+  const s = String(answer).trim();
+  // If answer is already a bare value, return it
+  if (/^-?\d+(\.\d+)?$/.test(s)) return s; // pure number
+  if (/^[A-Z]+$/.test(s) && s.length <= 20) return s; // pure uppercase word e.g. FIZZ
+  if (/^[A-Za-z]+$/.test(s) && s.length <= 30) return s; // single word e.g. Bob, Canberra
+
+  // Extract trailing number: "The degree is 4" → "4"
+  const trailingNum = s.match(
+    /(?:is|=|:|are|be|answer[:\s]+)\s*(-?\d+(?:\.\d+)?)\s*\.?\s*$/i,
+  );
+  if (trailingNum) return trailingNum[1];
+
+  // Extract leading number: "4 is the degree" → "4"
+  const leadingNum = s.match(/^(-?\d+(?:\.\d+)?)[\s.,]/);
+  if (leadingNum) return leadingNum[1];
+
+  // Extract only number in string
+  const onlyNum = s.match(/^[^\d-]*(-?\d+(?:\.\d+)?)[^\d]*$/);
+  if (onlyNum) return onlyNum[1];
+
+  return s;
 }
 
 function stripInjection(q) {
