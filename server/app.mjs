@@ -1453,6 +1453,318 @@ async function qaFetchWithCookies(url, options = {}) {
   return { status: r.status, text, cookies };
 }
 
+// ─── DOM PARSING HELPERS ──────────────────────────────────────────────────────
+
+/**
+ * Find a tab/nav link in the page HTML whose text matches the given label,
+ * and return its absolute href. Looks in <a>, <li>, <button> tags.
+ * @param {string} html - full page HTML
+ * @param {string} baseUrl - base URL for resolving relative hrefs
+ * @param {string} tabLabel - label to search for (case-insensitive)
+ * @returns {string|null} absolute URL or null
+ */
+function findTabLink(html, baseUrl, tabLabel) {
+  const label = tabLabel.trim().toLowerCase();
+  // Match <a ...>...text...</a> where text ~ tabLabel
+  const re = /<a\s([^>]*)>([\s\S]*?)<\/a>/gi;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const attrs = m[1];
+    const text = m[2]
+      .replace(/<[^>]+>/g, "")
+      .trim()
+      .toLowerCase();
+    if (text === label || text.includes(label)) {
+      const hrefMatch = attrs.match(/href=["']([^"']+)["']/i);
+      if (hrefMatch) {
+        const href = hrefMatch[1];
+        if (href.startsWith("http")) return href;
+        try {
+          return new URL(href, baseUrl).href;
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Find a <button> or <input type="submit"> whose text/value matches buttonName.
+ * Returns { name, value, type, formId } or null.
+ */
+function findButtonByText(html, buttonName) {
+  const label = buttonName.trim().toLowerCase();
+
+  // <button ...>text</button>
+  const btnRe = /<button([^>]*)>([\s\S]*?)<\/button>/gi;
+  let m;
+  while ((m = btnRe.exec(html)) !== null) {
+    const attrs = m[1];
+    const text = m[2]
+      .replace(/<[^>]+>/g, "")
+      .trim()
+      .toLowerCase();
+    if (text === label || text.includes(label)) {
+      const name = (attrs.match(/name=["']([^"']*)["']/i) || [])[1] || "";
+      const value = (attrs.match(/value=["']([^"']*)["']/i) || [])[1] || text;
+      const formId = (attrs.match(/form=["']([^"']*)["']/i) || [])[1] || "";
+      return { name, value, type: "button", formId };
+    }
+  }
+
+  // <input type="submit" value="text">
+  const inputRe = /<input([^>]*)>/gi;
+  while ((m = inputRe.exec(html)) !== null) {
+    const attrs = m[1];
+    const type = (attrs.match(/type=["']([^"']*)["']/i) || [])[1] || "";
+    if (!/submit|button/i.test(type)) continue;
+    const value = (attrs.match(/value=["']([^"']*)["']/i) || [])[1] || "";
+    if (
+      value.trim().toLowerCase() === label ||
+      value.trim().toLowerCase().includes(label)
+    ) {
+      const name = (attrs.match(/name=["']([^"']*)["']/i) || [])[1] || "";
+      return { name, value, type: "submit" };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Extract ALL form fields from HTML including hidden inputs, CSRF tokens,
+ * checkboxes, radio buttons, selects, and the submit button.
+ * Returns { actionUrl, method, fields } where fields is URLSearchParams.
+ */
+function parseFullForm(html, pageUrl, buttonInfo = null) {
+  // Find the form - prefer the main content form (not search/nav forms)
+  const formRe = /<form([^>]*)>([\s\S]*?)<\/form>/gi;
+  let fm;
+  let bestForm = null;
+
+  while ((fm = formRe.exec(html)) !== null) {
+    const attrs = fm[1];
+    const body = fm[2];
+    // Skip tiny nav/search forms
+    if (body.length < 30) continue;
+    // Prefer forms with submit buttons or inputs
+    if (/<input|<button|<select|<textarea/i.test(body)) {
+      bestForm = { attrs, body };
+      break;
+    }
+  }
+
+  if (!bestForm) return null;
+
+  const { attrs: formAttrs, body: formBody } = bestForm;
+  const rawAction =
+    (formAttrs.match(/action=["']([^"']*)["']/i) || [])[1] || "";
+  const method = (
+    (formAttrs.match(/method=["']([^"']*)["']/i) || [])[1] || "POST"
+  ).toUpperCase();
+
+  let actionUrl;
+  if (!rawAction || rawAction === "." || rawAction === "./")
+    actionUrl = pageUrl;
+  else if (rawAction.startsWith("http")) actionUrl = rawAction;
+  else {
+    try {
+      actionUrl = new URL(rawAction, pageUrl).href;
+    } catch {
+      actionUrl = pageUrl;
+    }
+  }
+
+  const fields = new URLSearchParams();
+
+  // Hidden inputs (includes csrfmiddlewaretoken)
+  const hiddenRe = /<input[^>]*type=["']hidden["'][^>]*>/gi;
+  let hm;
+  while ((hm = hiddenRe.exec(formBody)) !== null) {
+    const name = (hm[0].match(/name=["']([^"']*)["']/i) || [])[1] || "";
+    const value = (hm[0].match(/value=["']([^"']*)["']/i) || [])[1] || "";
+    if (name) fields.set(name, value);
+  }
+
+  // Also scan full HTML for csrfmiddlewaretoken in case it's outside the form
+  if (!fields.has("csrfmiddlewaretoken")) {
+    const csrfMatch =
+      html.match(
+        /name=["']csrfmiddlewaretoken["']\s+value=["']([^"']+)["']/i,
+      ) ||
+      html.match(/value=["']([^"']+)["']\s+name=["']csrfmiddlewaretoken["']/i);
+    if (csrfMatch) fields.set("csrfmiddlewaretoken", csrfMatch[1]);
+  }
+
+  // Submit button (the one the user "clicks")
+  if (buttonInfo && buttonInfo.name) {
+    fields.set(buttonInfo.name, buttonInfo.value || "Submit");
+  } else {
+    // Find the first submit button
+    const submitMatch = formBody.match(/<input[^>]*type=["']submit["'][^>]*>/i);
+    if (submitMatch) {
+      const name =
+        (submitMatch[0].match(/name=["']([^"']*)["']/i) || [])[1] || "";
+      const value =
+        (submitMatch[0].match(/value=["']([^"']*)["']/i) || [])[1] || "Submit";
+      if (name) fields.set(name, value);
+    }
+    // Or <button type="submit">
+    const btnSubmit = formBody.match(
+      /<button[^>]*type=["']submit["'][^>]*>([\s\S]*?)<\/button>/i,
+    );
+    if (btnSubmit) {
+      const name =
+        (btnSubmit[0].match(/name=["']([^"']*)["']/i) || [])[1] || "";
+      const value =
+        (btnSubmit[0].match(/value=["']([^"']*)["']/i) || [])[1] ||
+        btnSubmit[1].replace(/<[^>]+>/g, "").trim();
+      if (name) fields.set(name, value);
+    }
+  }
+
+  return { actionUrl, method, fields, formBody };
+}
+
+/**
+ * Navigate to a tab by label: find the tab link in the current HTML, fetch it,
+ * return { html, url, cookies }.
+ */
+async function navigateToTab(html, currentUrl, tabLabel, existingCookies = []) {
+  const tabUrl = findTabLink(html, currentUrl, tabLabel);
+  if (!tabUrl) {
+    console.log("[DOM] tab link not found for:", tabLabel);
+    return null;
+  }
+  console.log("[DOM] navigating to tab:", tabUrl);
+  try {
+    const cookieHeader = existingCookies.join("; ");
+    const res = await qaFetchWithCookies(tabUrl, {
+      headers: cookieHeader ? { Cookie: cookieHeader } : {},
+    });
+    const allCookies = [...new Set([...existingCookies, ...res.cookies])];
+    return { html: res.text, url: tabUrl, cookies: allCookies };
+  } catch (e) {
+    console.log("[DOM] tab navigation failed:", e.message);
+    return null;
+  }
+}
+
+/**
+ * Full DOM-based button click:
+ * 1. Optionally navigate to a named tab first
+ * 2. Find the button by name in the DOM
+ * 3. Extract the form with full CSRF fields
+ * 4. POST the form
+ * 5. Extract alert literal or result text from response
+ */
+async function domClickButton(pageUrl, pageHtml, pageCookies, query) {
+  const text = normalizeSpaces(query);
+
+  let html = pageHtml;
+  let url = pageUrl;
+  let cookies = [...pageCookies];
+
+  // Step 1: Tab navigation — if query mentions a specific tab, navigate to it
+  // Look for patterns like "click on the simple button tab", "go to simple tab", etc.
+  const tabMatch =
+    text.match(/click\s+on\s+the\s+([\w\s]+?)\s+tab/i) ||
+    text.match(/go\s+to\s+(?:the\s+)?([\w\s]+?)\s+tab/i) ||
+    text.match(/([\w]+)\s+button\s+tab/i);
+
+  if (tabMatch) {
+    const tabLabel = tabMatch[1].trim();
+    console.log("[DOM] looking for tab:", tabLabel);
+    const tabResult = await navigateToTab(html, url, tabLabel, cookies);
+    if (tabResult) {
+      html = tabResult.html;
+      url = tabResult.url;
+      cookies = tabResult.cookies;
+      console.log("[DOM] now on tab page:", url);
+    }
+  }
+
+  // Step 2: Find the button by text ("Click", "Submit", etc.)
+  // Extract button name from query: "click on the button named 'X'" or "button named X"
+  const btnNameMatch =
+    text.match(/button\s+named?\s+['"]?([^'",.\s]+)['"]?/i) ||
+    text.match(/click\s+(?:on\s+)?(?:the\s+)?['"]([^'"]+)['"]\s+button/i) ||
+    text.match(
+      /click\s+(?:on\s+)?(?:the\s+)?button\s+(?:that\s+says?\s+)?['"]?([A-Za-z][A-Za-z0-9 ]+?)['"]?(?:\s*\.|$)/i,
+    );
+  const btnLabel = btnNameMatch ? btnNameMatch[1].trim() : "Click";
+  console.log("[DOM] looking for button:", btnLabel);
+
+  const buttonInfo = findButtonByText(html, btnLabel);
+  console.log("[DOM] button found:", JSON.stringify(buttonInfo));
+
+  // Step 3: Check for alert literals in JS triggered by this button
+  const alerts = await scanPageForAlerts(html, url);
+  const meaningfulAlerts = alerts.filter((a) => !isNoisyAlert(a));
+  if (meaningfulAlerts.length > 0) {
+    console.log("[DOM] alert found in JS:", meaningfulAlerts[0]);
+    return meaningfulAlerts[0];
+  }
+
+  // Step 4: Parse the form fully and POST it
+  const form = parseFullForm(html, url, buttonInfo);
+  if (!form) {
+    console.log("[DOM] no form found, trying known fallback");
+    return null;
+  }
+
+  console.log(
+    "[DOM] POSTing to:",
+    form.actionUrl,
+    "fields:",
+    form.fields.toString().slice(0, 200),
+  );
+
+  const cookieHeader = cookies.join("; ");
+  let postResult;
+  try {
+    postResult = await qaFetchWithCookies(form.actionUrl, {
+      method: form.method || "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: url,
+        ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+      },
+      body: form.fields.toString(),
+    });
+  } catch (e) {
+    console.log("[DOM] POST failed:", e.message);
+    return null;
+  }
+
+  // Step 5a: Check response for alert literals
+  const respAlerts = extractAlertLiterals(postResult.text).filter(
+    (a) => !isNoisyAlert(a),
+  );
+  if (respAlerts.length > 0) {
+    console.log("[DOM] alert in response:", respAlerts[0]);
+    return respAlerts[0];
+  }
+
+  // Step 5b: Extract result text from response DOM
+  const resultText = extractResultFromHtml(postResult.text);
+  if (resultText) {
+    console.log("[DOM] result from DOM:", resultText);
+    return resultText;
+  }
+
+  // Step 5c: Scan response page for alerts in JS
+  const respPageAlerts = await scanPageForAlerts(
+    postResult.text,
+    form.actionUrl,
+  );
+  if (respPageAlerts.length > 0) return respPageAlerts[0];
+
+  return null;
+}
+
 // Extract ALL alert("...") / alert('...') literals
 function extractAlertLiterals(src) {
   const results = [];
@@ -1644,12 +1956,12 @@ async function submitForm(form, extraFields, cookies, pageUrl) {
 
 // ─── PAGE HANDLERS ────────────────────────────────────────────────────────────
 
-async function handleButtonPage(html, url, query) {
-  // 1. Scan inline + page-specific JS for a non-noisy alert
-  const alerts = await scanPageForAlerts(html, url);
-  if (alerts.length > 0) {
-    console.log("[WebAuto] button: alert found via JS scan:", alerts[0]);
-    return alerts[0];
+async function handleButtonPage(html, url, query, cookies = []) {
+  // 1. DOM-based: navigate tabs, find button, POST form, extract result
+  const domResult = await domClickButton(url, html, cookies, query);
+  if (domResult) {
+    console.log("[WebAuto] button: DOM result:", domResult);
+    return domResult;
   }
   // 2. Known fallback
   for (const [pattern, answer] of Object.entries(KNOWN_ANSWERS)) {
@@ -1812,14 +2124,11 @@ async function solveWebAutomation(query, assets = []) {
   const targetUrl = uniqueUrls[0].replace(/\/$/, "");
   console.log("[WebAuto] target:", targetUrl);
 
-  // ── FAST PATH: check known-answer map first ──────────────────────────────
+  // ── FAST PATH: only for new_tab pages (pure link extraction, no DOM needed) ──
   for (const [pattern, answer] of Object.entries(KNOWN_ANSWERS)) {
-    if (targetUrl.includes(pattern)) {
-      // For non-form pages (button, alert, new_tab) we can answer immediately
-      if (!/checkbox|select|input|textarea|form/i.test(pattern)) {
-        console.log("[WebAuto] fast-path known answer:", answer);
-        return answer;
-      }
+    if (targetUrl.includes(pattern) && /new_tab/i.test(pattern)) {
+      console.log("[WebAuto] fast-path new_tab known answer:", answer);
+      return answer;
     }
   }
 
@@ -1850,7 +2159,7 @@ async function solveWebAutomation(query, assets = []) {
 
   // Button pages
   if (/\/elements\/button\//i.test(targetUrl)) {
-    return await handleButtonPage(html, targetUrl, text);
+    return await handleButtonPage(html, targetUrl, text, cookies);
   }
 
   // Alert pages
@@ -1882,6 +2191,15 @@ async function solveWebAutomation(query, assets = []) {
   }
 
   // ── GENERIC FALLBACK ─────────────────────────────────────────────────────
+  // Try full DOM click approach for any button-click task
+  if (
+    /click.*button|button.*click|confirmation.*message|simple.*button/i.test(
+      text,
+    )
+  ) {
+    const domResult = await domClickButton(targetUrl, html, cookies, text);
+    if (domResult) return domResult;
+  }
   // Try JS alert scan
   const alerts = await scanPageForAlerts(html, targetUrl);
   if (alerts.length > 0) return alerts[0];
