@@ -336,6 +336,21 @@ function tryParseJsonFromText(text) {
 function solve(query) {
   const text = normalizeSpaces(query);
 
+  if (/\bodd\b|\beven\b/i.test(text) && /\bnumber\b/i.test(text)) {
+    const nums = text.match(/-?\d+/g) || [];
+    if (nums.length > 0) {
+      const n = Number(nums[0]);
+      if (Number.isFinite(n)) {
+        const isOdd = Math.abs(n) % 2 === 1;
+        const asksOdd = /\bodd\b/i.test(text);
+        const asksEven = /\beven\b/i.test(text);
+        if (asksOdd && !asksEven) return isOdd ? "YES" : "NO";
+        if (asksEven && !asksOdd) return isOdd ? "NO" : "YES";
+      }
+    }
+    return "";
+  }
+
   if (/extract\s+date\s+from/i.test(text)) {
     const source = extractQuoted(text) || text;
     const month =
