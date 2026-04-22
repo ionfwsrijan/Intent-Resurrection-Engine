@@ -371,29 +371,53 @@ function solveLocal(query) {
   }
 
   if (/\bcount\s+words\b/i.test(text)) {
-    const quoted = extractQuoted(text) || text;
-    const words = normalizeSpaces(quoted).split(" ").filter(Boolean);
-    return String(words.length);
-  }
-
-  if (/\bcount\s+characters\b/i.test(text) || /\bcount\s+chars\b/i.test(text)) {
-    const quoted = extractQuoted(text) || text;
-    return String(String(quoted).length);
-  }
-
-  if (/\breverse\b/i.test(text) && /".*"/.test(text)) {
     const quoted = extractQuoted(text);
-    return quoted.split("").reverse().join("");
+    if (quoted) {
+      const words = normalizeSpaces(quoted).split(" ").filter(Boolean);
+      return String(words.length);
+    }
+    // Without quotes: "count words in hello world" — extract everything after "in"
+    const inMatch = text.match(/count\s+words\s+in\s+(.+)$/i);
+    if (inMatch) {
+      const words = normalizeSpaces(inMatch[1]).split(" ").filter(Boolean);
+      return String(words.length);
+    }
   }
 
-  if (/\buppercase\b/i.test(text) && /".*"/.test(text)) {
+  if (
+    /\bcount\s+characters\b/i.test(text) ||
+    /\bcount\s+chars\b/i.test(text) ||
+    /\bhow\s+many\s+(?:characters|letters|chars)\b/i.test(text)
+  ) {
     const quoted = extractQuoted(text);
-    return quoted.toUpperCase();
+    if (quoted) return String(quoted.length);
+    // Without quotes: try "in X" or "of X"
+    const inMatch = text.match(/(?:in|of)\s+(\S+)\s*\??$/i);
+    if (inMatch) return String(inMatch[1].length);
   }
 
-  if (/\blowercase\b/i.test(text) && /".*"/.test(text)) {
+  if (/\breverse\b/i.test(text)) {
     const quoted = extractQuoted(text);
-    return quoted.toLowerCase();
+    // With quotes
+    if (quoted) return quoted.split("").reverse().join("");
+    // Without quotes: "reverse the word hello" or "reverse hello"
+    const wordMatch = text.match(/reverse(?:\s+the\s+\w+)?\s+(\S+)\s*$/i);
+    if (wordMatch) return wordMatch[1].split("").reverse().join("");
+  }
+
+  if (/\buppercase\b/i.test(text)) {
+    const quoted = extractQuoted(text);
+    if (quoted) return quoted.toUpperCase();
+    // Without quotes: "convert hello world to uppercase"
+    const wordMatch = text.match(/convert\s+(.+?)\s+to\s+uppercase/i);
+    if (wordMatch) return wordMatch[1].toUpperCase();
+  }
+
+  if (/\blowercase\b/i.test(text)) {
+    const quoted = extractQuoted(text);
+    if (quoted) return quoted.toLowerCase();
+    const wordMatch = text.match(/convert\s+(.+?)\s+to\s+lowercase/i);
+    if (wordMatch) return wordMatch[1].toLowerCase();
   }
 
   if (/\bremove\s+punctuation\b/i.test(text) && /".*"/.test(text)) {
@@ -442,9 +466,9 @@ function solveLocal(query) {
     else if (op === "*") result = a * b;
     else if (op === "/") result = b === 0 ? NaN : a / b;
     if (!Number.isFinite(result)) return "";
-    const out = Number.isInteger(result) ? String(result) : String(result);
-    if (op === "+") return `The sum is ${out}.`;
-    return `The result is ${out}.`;
+    // Return bare number — evaluator expects just the value
+    const rounded = Math.round(result * 1e10) / 1e10;
+    return String(rounded);
   }
 
   return "";
@@ -506,83 +530,115 @@ async function solveWithLlm(query, assets = []) {
   const fullQuestion = context + String(query);
 
   const systemPrompt = [
-    "You are a precise answer engine. Respond with a JSON object with two fields: reasoning (string) and answer (string).",
+    'You are a precise answer engine. Respond ONLY with a JSON object: {"reasoning": "...", "answer": "..."}',
     "",
-    "ANSWER FIELD MUST CONTAIN ONLY THE BARE VALUE — nothing else. Study every example below:",
+    "CRITICAL RULE: The `answer` field must contain ONLY the bare value. No sentences. No explanation. No trailing punctuation unless it is part of the value itself.",
     "",
-    "--- COMPARISON (WHO/WHICH is highest/lowest/best/worst/most/least) ---",
-    "Q: Alice scored 80, Bob scored 90. Who scored highest?",
-    "A: {reasoning: Bob=90 > Alice=80, answer: Bob}",
-    "Q: Alice scored 80, Bob scored 90. Who scored lowest?",
-    "A: {reasoning: Alice=80 < Bob=90, answer: Alice}",
-    "Q: Tom is 25, Sara is 30, Mike is 22. Who is oldest?",
-    "A: {reasoning: Sara=30 is largest, answer: Sara}",
-    "Q: Tom is 25, Sara is 30, Mike is 22. Who is youngest?",
-    "A: {reasoning: Mike=22 is smallest, answer: Mike}",
-    "Q: Tom is 25, Sara is 30, Mike is 22. What is the average age?",
-    "A: {reasoning: (25+30+22)/3=77/3=25.67, answer: 25.67}",
-    "Q: Tom is 25, Sara is 30, Mike is 22. What is the age difference between oldest and youngest?",
-    "A: {reasoning: 30-22=8, answer: 8}",
-    "Q: Alice scored 80, Bob scored 90, Carol scored 70. Rank highest to lowest.",
-    "A: {reasoning: Bob=90, Alice=80, Carol=70, answer: Bob, Alice, Carol}",
-    "Q: Alice scored 80, Bob scored 90, Carol scored 70. Rank lowest to highest.",
-    "A: {reasoning: Carol=70, Alice=80, Bob=90, answer: Carol, Alice, Bob}",
-    "Q: Red costs 5, Blue costs 3, Green costs 7. Which is cheapest?",
-    "A: {reasoning: Blue=3 is smallest, answer: Blue}",
-    "Q: Red costs 5, Blue costs 3, Green costs 7. Which is most expensive?",
-    "A: {reasoning: Green=7 is largest, answer: Green}",
-    "Q: Red costs 5, Blue costs 3, Green costs 7. Total cost?",
-    "A: {reasoning: 5+3+7=15, answer: 15}",
-    "Q: Alice ran 5km, Bob ran 3km, Carol ran 7km. Who ran the most?",
-    "A: {reasoning: Carol=7 is largest, answer: Carol}",
-    "Q: Alice ran 5km, Bob ran 3km, Carol ran 7km. Who ran the least?",
-    "A: {reasoning: Bob=3 is smallest, answer: Bob}",
-    "Q: Alice ran 5km, Bob ran 3km, Carol ran 7km. How far did they run in total?",
-    "A: {reasoning: 5+3+7=15, answer: 15}",
-    "Q: A=10, B=20, C=15. Which variable has the highest value?",
-    "A: {reasoning: B=20 is largest, answer: B}",
-    "Q: A=10, B=20, C=15. Which variable has the lowest value?",
-    "A: {reasoning: A=10 is smallest, answer: A}",
-    "Q: Item X weighs 5kg, Item Y weighs 8kg, Item Z weighs 3kg. Which is heaviest?",
-    "A: {reasoning: Y=8 is largest, answer: Y}",
+    "=== COMPARISON (WHO/WHICH/WHAT is highest/lowest/most/least/best/worst) ===",
+    "Return the NAME only.",
+    "Q: Alice scored 80, Bob scored 90. Who scored highest? → answer: Bob",
+    "Q: Alice scored 80, Bob scored 90. Who scored lowest? → answer: Alice",
+    "Q: Tom is 25, Sara is 30, Mike is 22. Who is oldest? → answer: Sara",
+    "Q: Tom is 25, Sara is 30, Mike is 22. Who is youngest? → answer: Mike",
+    "Q: Red costs 5, Blue costs 3, Green costs 7. Which is cheapest? → answer: Blue",
+    "Q: Red costs 5, Blue costs 3, Green costs 7. Which is most expensive? → answer: Green",
+    "Q: Item X weighs 5kg, Item Y weighs 8kg, Item Z weighs 3kg. Which is heaviest? → answer: Y",
+    "Q: A=10, B=20, C=15. Which variable has highest value? → answer: B",
+    "Q: A=10, B=20, C=15. Which variable has lowest value? → answer: A",
     "",
-    "--- WORD PROBLEMS ---",
-    "Q: John has 10 apples and gives 3 to Mary. How many does John have?",
-    "A: {reasoning: 10-3=7, answer: 7}",
-    "Q: A train travels 60mph for 2 hours. How far does it travel?",
-    "A: {reasoning: 60*2=120, answer: 120}",
-    "Q: A product costs 50 and has 20% discount. What is the final price?",
-    "A: {reasoning: 50*0.8=40, answer: 40}",
-    "Q: There are 5 red and 3 blue balls. How many total?",
-    "A: {reasoning: 5+3=8, answer: 8}",
-    "Q: A rectangle is 6 wide and 4 tall. What is its area?",
-    "A: {reasoning: 6*4=24, answer: 24}",
+    "=== RANKING (rank/sort/order multiple items) ===",
+    "Return comma-space separated names/values in the requested order.",
+    "Q: Alice=80, Bob=90, Carol=70. Rank highest to lowest. → answer: Bob, Alice, Carol",
+    "Q: Alice=80, Bob=90, Carol=70. Rank lowest to highest. → answer: Carol, Alice, Bob",
+    "Q: Numbers: 10,20,30. Sort descending. → answer: 30, 20, 10",
+    "Q: Numbers: 10,20,30. Sort ascending. → answer: 10, 20, 30",
     "",
-    "--- NUMBER LISTS ---",
-    "Q: Numbers: 2,5,8,11. Sum even numbers.",
-    "A: {reasoning: evens are 2,8. 2+8=10, answer: 10}",
-    "Q: Numbers: 1,3,4,6,9. List odd numbers.",
-    "A: {reasoning: odds are 1,3,9, answer: 1, 3, 9}",
-    "Q: Numbers: 3,7,2,9,4. Largest number.",
-    "A: {reasoning: max is 9, answer: 9}",
-    "Q: Numbers: 1,2,3,4,5. Average.",
-    "A: {reasoning: 15/5=3, answer: 3}",
-    "Q: Numbers: 10,20,30. Sort descending.",
-    "A: {reasoning: 30>20>10, answer: 30, 20, 10}",
+    "=== ARITHMETIC (return ONLY the number, no units unless asked) ===",
+    "Q: What is 5 + 3? → answer: 8",
+    "Q: What is 10 - 4? → answer: 6",
+    "Q: What is 6 * 7? → answer: 42",
+    "Q: What is 10 / 4? → answer: 2.5",
+    "Q: What is 10 / 5? → answer: 2",
+    "Q: Tom is 25, Sara is 30, Mike is 22. What is the average age? → answer: 25.67",
+    "Q: Tom is 25, Sara is 30, Mike is 22. What is the age difference between oldest and youngest? → answer: 8",
+    "Q: Red costs 5, Blue costs 3, Green costs 7. Total cost? → answer: 15",
+    "Q: Alice ran 5km, Bob ran 3km, Carol ran 7km. Total distance? → answer: 15",
+    "Q: John has 10 apples and gives 3 to Mary. How many does John have? → answer: 7",
+    "Q: A train travels 60mph for 2 hours. How far? → answer: 120",
+    "Q: A product costs 50 with 20% discount. Final price? → answer: 40",
+    "Q: There are 5 red and 3 blue balls. Total? → answer: 8",
+    "Q: A rectangle is 6 wide and 4 tall. Area? → answer: 24",
+    "Q: Numbers: 2,5,8,11. Sum even numbers. → answer: 10",
+    "Q: Numbers: 1,2,3,4,5. Average. → answer: 3",
+    "Q: Numbers: 3,7,2,9,4. Largest number. → answer: 9",
+    "Q: Numbers: 3,7,2,9,4. Smallest number. → answer: 2",
+    "Q: Numbers: 1,3,4,6,9. Sum of odd numbers. → answer: 13",
     "",
-    "--- YES/NO ---",
-    "Q: Is 17 a prime number?",
-    "A: {reasoning: 17 only divisible by 1 and itself, answer: YES}",
-    "Q: Is 15 a prime number?",
-    "A: {reasoning: 15=3x5, answer: NO}",
-    "Q: Is 25 greater than 30?",
-    "A: {reasoning: 25<30, answer: NO}",
-    "Q: Is 100 divisible by 4?",
-    "A: {reasoning: 100/4=25, answer: YES}",
+    "=== WORD/NUMBER LISTS ===",
+    "Return comma-space separated list of values.",
+    "Q: Numbers: 1,3,4,6,9. List odd numbers. → answer: 1, 3, 9",
+    "Q: Numbers: 1,3,4,6,9. List even numbers. → answer: 4, 6",
+    "Q: From [apple, banana, cherry, date] list fruits with more than 5 letters. → answer: banana, cherry",
     "",
-    "--- STRICT RULES ---",
-    "answer field: ONLY the bare value. No sentences. No units unless asked. No punctuation.",
-    "WHO/WHICH -> name only. Number -> digits only. List -> comma-space separated. YES/NO -> YES or NO.",
+    "=== YES/NO ===",
+    "Return YES or NO (uppercase).",
+    "Q: Is 17 a prime number? → answer: YES",
+    "Q: Is 15 a prime number? → answer: NO",
+    "Q: Is 25 greater than 30? → answer: NO",
+    "Q: Is 100 divisible by 4? → answer: YES",
+    "Q: Is 7 odd? → answer: YES",
+    "Q: Is 8 even? → answer: YES",
+    "Q: Is 9 divisible by 3? → answer: YES",
+    "",
+    "=== STRING OPERATIONS ===",
+    "Q: Reverse the word 'hello' → answer: olleh",
+    "Q: Reverse hello → answer: olleh",
+    "Q: How many characters in 'hello'? → answer: 5",
+    "Q: How many characters in hello? → answer: 5",
+    "Q: How many vowels in 'programming'? → answer: 3",
+    "Q: How many letters in 'elephant'? → answer: 8",
+    "Q: Convert 'hello world' to uppercase → answer: HELLO WORLD",
+    "Q: Convert hello world to uppercase → answer: HELLO WORLD",
+    "Q: Convert 'HELLO' to lowercase → answer: hello",
+    "Q: What is the 3rd character of 'python'? → answer: t",
+    "Q: First letter of 'elephant'? → answer: e",
+    "Q: Last letter of 'elephant'? → answer: t",
+    "Q: Count the vowels in 'education' → answer: 5",
+    "",
+    "=== FIZZBUZZ / CONDITIONAL ===",
+    "Q: FizzBuzz for 15 → answer: FizzBuzz",
+    "Q: FizzBuzz for 9 → answer: Fizz",
+    "Q: FizzBuzz for 10 → answer: Buzz",
+    "Q: FizzBuzz for 7 → answer: 7",
+    "Q: Apply FizzBuzz to numbers 1 to 5 → answer: 1, 2, Fizz, 4, Buzz",
+    "",
+    "=== TRUE/FALSE ===",
+    "Return True or False (title-case) unless the question asks for YES/NO.",
+    "Q: Is 4 * 4 equal to 16? True or False → answer: True",
+    "Q: Is 3 > 5? True or False → answer: False",
+    "",
+    "=== DATE / TIME ===",
+    "Q: What day comes after Monday? → answer: Tuesday",
+    "Q: How many days in February (non-leap year)? → answer: 28",
+    "Q: How many months in a year? → answer: 12",
+    "Q: What is the 3rd month of the year? → answer: March",
+    "",
+    "=== UNIT CONVERSION ===",
+    "Return ONLY the number (and unit only if the question asks for it explicitly).",
+    "Q: Convert 100 cm to meters → answer: 1",
+    "Q: Convert 1 kilometer to meters → answer: 1000",
+    "Q: How many seconds in an hour? → answer: 3600",
+    "Q: How many minutes in a day? → answer: 1440",
+    "",
+    "=== EXACT FORMATTING RULES ===",
+    "1. WHO/WHICH questions → name only (e.g. 'Bob', not 'Bob scored 90')",
+    "2. Number questions → digits only, no units unless asked (e.g. '42' not '42 apples')",
+    "3. List questions → comma-space separated (e.g. 'Bob, Alice, Carol')",
+    "4. YES/NO questions → 'YES' or 'NO' (uppercase)",
+    "5. True/False questions → 'True' or 'False'",
+    "6. Never add period, colon, or explanation to answer field",
+    "7. For averages, round to 2 decimal places max (drop trailing zeros)",
+    "8. If asked for a name/word, return only that word",
   ].join("\n");
 
   const result = await callOpenAI(
@@ -622,6 +678,11 @@ async function solveWithLlm(query, assets = []) {
 }
 
 async function solve(query, assets = []) {
+  // Try fast local rules first (no latency, no API cost)
+  if (assets.length === 0) {
+    const local = solveLocal(query);
+    if (local !== "") return local;
+  }
   return (await solveWithLlm(query, assets)) || "";
 }
 
