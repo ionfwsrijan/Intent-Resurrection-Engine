@@ -1891,27 +1891,18 @@ function parseDjangoForm(html, pageUrl) {
 
 // Extract displayed result text from a Django response page
 function extractResultFromHtml(html) {
-  // Strip script/style tags first for cleaner matching
   const clean = html
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<style[\s\S]*?<\/style>/gi, "");
 
+  // Priority 1: id/class-based selectors
   const selectors = [
-    // id-based (most specific)
-    /<[^>]*\bid=["']result[^"']*["'][^>]*>\s*([^<\n]{1,300})/i,
-    /<[^>]*\bid=["'](?:output|answer|success)[^"']*["'][^>]*>\s*([^<\n]{1,300})/i,
-    // class-based
-    /<[^>]*\bclass=["'][^"']*(?:result|success|answer|confirmation)[^"']*["'][^>]*>\s*([^<\n]{1,300})/i,
-    // Bootstrap alert-success
+    /<[^>]*\bid=["']result[^"']*["'][^>]*>([\s\S]{1,500}?)<\/[a-z]+>/i,
+    /<[^>]*\bid=["'](?:output|answer|success|message)[^"']*["'][^>]*>([\s\S]{1,500}?)<\/[a-z]+>/i,
+    /<[^>]*\bclass=["'][^"']*(?:result|success|answer|confirmation|message)[^"']*["'][^>]*>([\s\S]{1,500}?)<\/[a-z]+>/i,
     /<[^>]*\bclass=["'][^"']*alert-success[^"']*["'][^>]*>([\s\S]{1,500}?)<\/[a-z]+>/i,
-    // <p> or <div> containing known answer strings
-    /<(?:p|div|span|h\d)[^>]*>\s*(Submitted)\s*</i,
-    /<(?:p|div|span|h\d)[^>]*>\s*(Select me or not)\s*</i,
-    /<(?:p|div|span|h\d)[^>]*>\s*(I am an alert!)\s*</i,
-    // "You selected: X" pattern for confirm box
-    /<(?:p|div|span)[^>]*>\s*(You selected[^<]{1,100})\s*</i,
+    /<[^>]*\bclass=["'][^"']*alert-info[^"']*["'][^>]*>([\s\S]{1,500}?)<\/[a-z]+>/i,
   ];
-
   for (const re of selectors) {
     const m = clean.match(re);
     if (m) {
@@ -1922,7 +1913,42 @@ function extractResultFromHtml(html) {
       if (raw.length > 0 && raw.length < 300) return raw;
     }
   }
+
+  // Priority 2: scan ALL <p>, <div>, <span>, <h*> text nodes for meaningful content
+  // after the main form (result pages typically have a short confirmation paragraph)
+  const tagRe =
+    /<(?:p|div|span|h[1-6]|li|td)[^>]*>([^<]{3,300})<\/(?:p|div|span|h[1-6]|li|td)>/gi;
+  let tm;
+  const SKIP =
+    /^(submit|cancel|back|home|login|menu|nav|copyright|\d{4}|all rights|privacy|terms|cookie|javascript|loading|error 4|forbidden|not found)/i;
+  const NOISE =
+    /^\s*$|navigation|breadcrumb|toggle|collapse|navbar|footer|header|sidebar/i;
+  while ((tm = tagRe.exec(clean)) !== null) {
+    const raw = tm[1].replace(/\s+/g, " ").trim();
+    if (raw.length < 3 || raw.length > 200) continue;
+    if (SKIP.test(raw) || NOISE.test(raw)) continue;
+    // Skip if it looks like a nav label or form label
+    if (/^(select|choose|pick|enter|fill|type|click|go to|step \d)/i.test(raw))
+      continue;
+    return raw;
+  }
+
   return "";
+}
+
+// Extract ALL meaningful text from response HTML (used as last-resort)
+function extractAllTextFromHtml(html) {
+  const clean = html
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<nav[\s\S]*?<\/nav>/gi, "")
+    .replace(/<header[\s\S]*?<\/header>/gi, "")
+    .replace(/<footer[\s\S]*?<\/footer>/gi, "");
+  // Strip all tags, collapse whitespace
+  return clean
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 // POST a form and return the result text from the response
@@ -1947,6 +1973,13 @@ async function submitForm(form, extraFields, cookies, pageUrl) {
       body: body.toString(),
     });
     console.log("[WebAuto] POST status:", r.status);
+    // Log the response body snippet for debugging
+    const snippet = r.text
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 500);
+    console.log("[WebAuto] POST response text:", snippet);
     return { status: r.status, text: r.text, cookies: r.cookies };
   } catch (e) {
     console.log("[WebAuto] POST failed:", e.message);
@@ -2039,20 +2072,70 @@ async function handleFormPage(html, url, query, cookies) {
   // ── Select page ──
   if (
     /select/i.test(url) ||
-    /select.*option|choose.*option|dropdown/i.test(text)
+    /select.*option|choose.*option|dropdown|choose/i.test(text)
   ) {
     const selectRe =
       /<select[^>]*name=["']([^"']*)["'][^>]*>([\s\S]*?)<\/select>/gi;
     let selM;
-    while ((selM = selectRe.exec(form.formBody)) !== null) {
+    while ((selM = selectRe.exec(freshHtml)) !== null) {
       const selectName = selM[1];
-      const optRe = /<option[^>]*value=["']([^"']+)["'][^>]*>/gi;
+      // Parse all options: {value, label}
+      const options = [];
+      const optRe = /<option([^>]*)>([^<]*)<\/option>/gi;
       let om;
-      let lastVal = "";
       while ((om = optRe.exec(selM[2])) !== null) {
-        if (!/disabled/i.test(om[0])) lastVal = om[1];
+        if (/disabled/i.test(om[1])) continue;
+        const val = (om[1].match(/value=["']([^"']*)["']/i) || [])[1] || "";
+        const label = om[2].trim().toLowerCase();
+        if (val) options.push({ val, label });
       }
-      if (lastVal) extraFields[selectName] = lastVal;
+      if (options.length === 0) continue;
+
+      // Try to match a keyword from the query text to an option label
+      // Query like "choose mountains", "as train", "as tomorrow"
+      // Extract quoted values first: 'mountains', 'train', 'tomorrow'
+      const quotedVals = [...text.matchAll(/['"]([^'"]{2,50})['"]/g)].map((m) =>
+        m[1].toLowerCase(),
+      );
+      // Also plain keywords after "as", "choose", "select", "pick"
+      const keywordMatches = [
+        ...text.matchAll(
+          /(?:as|choose|select|pick|going to|want to go(?:\s+as)?|get there(?:\s+as)?|want to go)\s+['"]?([\w]+)['"]?/gi,
+        ),
+      ].map((m) => m[1].toLowerCase());
+      const keywords = [...new Set([...quotedVals, ...keywordMatches])];
+
+      let matched = false;
+      for (const kw of keywords) {
+        const opt = options.find(
+          (o) => o.label.includes(kw) || kw.includes(o.label),
+        );
+        if (opt) {
+          extraFields[selectName] = opt.val;
+          matched = true;
+          console.log(
+            "[WebAuto] select matched:",
+            selectName,
+            "=",
+            opt.val,
+            "(",
+            opt.label,
+            ") for keyword:",
+            kw,
+          );
+          break;
+        }
+      }
+      // Fallback: pick last non-empty option
+      if (!matched) {
+        extraFields[selectName] = options[options.length - 1].val;
+        console.log(
+          "[WebAuto] select fallback last:",
+          selectName,
+          "=",
+          extraFields[selectName],
+        );
+      }
     }
   }
 
@@ -2068,6 +2151,8 @@ async function handleFormPage(html, url, query, cookies) {
   const result = await submitForm(form, extraFields, allCookies, url);
   if (!result) return "";
 
+  console.log("[WebAuto] POST response snippet:", result.text.slice(0, 300));
+
   // Parse result from response
   const resultText = extractResultFromHtml(result.text);
   if (resultText) {
@@ -2080,6 +2165,27 @@ async function handleFormPage(html, url, query, cookies) {
     (a) => !isNoisyAlert(a),
   );
   if (respAlerts.length > 0) return respAlerts[0];
+
+  // Last resort: scan all text content from the response page
+  // Look for short meaningful sentences that appear to be confirmations
+  const allText = extractAllTextFromHtml(result.text);
+  // Find the first short clause that looks like a result (not a nav item or form label)
+  const sentences = allText
+    .split(/[.!?\n]/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 3 && s.length < 200);
+  for (const s of sentences) {
+    if (
+      /submit|select|confirm|success|chosen|picked|mountain|train|plane|bus|tomorrow|today|go|travel/i.test(
+        s,
+      )
+    ) {
+      if (!/^(step|go to|click|choose|fill|enter|find|return)/i.test(s)) {
+        console.log("[WebAuto] fallback text match:", s);
+        return s;
+      }
+    }
+  }
 
   // Known fallback
   for (const [pattern, answer] of Object.entries(KNOWN_ANSWERS)) {
