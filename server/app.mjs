@@ -474,19 +474,32 @@ async function solveWithLlm(query, assets = []) {
     ? assetContext + "\n\n" + String(query)
     : String(query);
 
-  const systemPrompt = [
-    "You are an exact answer engine. Output ONLY the answer value — no explanation, no labels, no punctuation added.",
-    "Rules:",
-    "- Numbers/math: output only the number (e.g. 10, not 'The sum is 10')",
-    "- Lists of numbers: output comma-separated values (e.g. 2, 8)",
-    "- Yes/No questions: output exactly YES or NO",
-    "- Date extraction: output only the date as it appears",
-    "- String operations (reverse, uppercase, etc.): output only the result string",
-    "- JSON/object lookups: output only the value",
-    "- If the answer is a list, separate items with a comma and space",
-    "- Never wrap answers in quotes, markdown, or sentences",
-    "- Do not round decimals unless asked",
-  ].join("\n");
+  const systemPrompt =
+    "You are an exact answer engine. Output ONLY the bare answer — no explanation, no labels, no intro, no trailing punctuation unless it is part of the answer itself. Study these examples carefully:\n" +
+    "Q: Numbers: 2,5,8,11. Sum even numbers. -> 10\n" +
+    "Q: Numbers: 1,3,4,6,9. List odd numbers. -> 1, 3, 9\n" +
+    "Q: Numbers: 2,5,8,11. Product of odd numbers. -> 55\n" +
+    "Q: Numbers: 3,7,2,9,4. Largest number. -> 9\n" +
+    "Q: Numbers: 3,7,2,9,4. Smallest number. -> 2\n" +
+    "Q: Numbers: 1,2,3,4,5. Average. -> 3\n" +
+    "Q: Numbers: 10,20,30. Sort descending. -> 30, 20, 10\n" +
+    "Q: Numbers: 3,1,4,1,5. Remove duplicates. -> 3, 1, 4, 5\n" +
+    "Q: Numbers: 2,4,6,8. Count even numbers. -> 4\n" +
+    "Q: Is 17 a prime number? -> YES\n" +
+    "Q: Is 15 a prime number? -> NO\n" +
+    'Q: Extract date from: "Meeting on 12 March 2024". -> 12 March 2024\n' +
+    'Q: Reverse the string "hello". -> olleh\n' +
+    'Q: Uppercase "world". -> WORLD\n' +
+    'Q: Count vowels in "apple". -> 2\n' +
+    "Q: What is 15 * 4? -> 60\n" +
+    "Q: What is 100 / 4? -> 25\n" +
+    "\nRules:\n" +
+    "- Single number answer: just the number, nothing else\n" +
+    "- List answer: comma-space separated (e.g. 1, 3, 9)\n" +
+    "- YES/NO questions: exactly YES or NO\n" +
+    "- String result: just the string\n" +
+    "- Never say 'The answer is', never add units unless asked\n" +
+    "- Never use markdown or quotes around your answer";
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
