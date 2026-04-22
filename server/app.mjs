@@ -339,40 +339,70 @@ function solvePolynomialGcd(query) {
   const text = normalizeSpaces(query);
   if (!/gcd\s*\(\s*p|degree.*gcd|gcd.*polynomial/i.test(text)) return "";
 
-  // Extract all (x-N) or (x+N) factors for each polynomial
+  // Extract all (x-N) or (x+N) factors, including multiplicity via (x-N)^k
   function extractRoots(polyStr) {
     const roots = [];
-    const re = /\(x\s*([+-])\s*(\d+)\)/g;
+    // Handle (x - N)^k or (x + N)^k
+    const re = /\(\s*x\s*([+-])\s*(\d+(?:\.\d+)?)\s*\)(?:\s*\^\s*(\d+))?/g;
     let m;
     while ((m = re.exec(polyStr)) !== null) {
-      // (x - N) means root is +N, (x + N) means root is -N
-      roots.push(m[1] === "-" ? Number(m[2]) : -Number(m[2]));
+      const root = m[1] === "-" ? Number(m[2]) : -Number(m[2]);
+      const mult = m[3] ? Number(m[3]) : 1;
+      for (let i = 0; i < mult; i++) roots.push(root);
     }
     return roots;
   }
 
-  // Split into p(x) and q(x) parts
-  // Look for "p(x) = ... q(x) = ..." pattern
-  const pMatch = text.match(/p\s*\(x\)\s*=\s*([\s\S]+?)(?=\s+q\s*\(x\)\s*=)/i);
+  // Split into p(x) and q(x) parts — robust split strategy
+  // Strategy 1: named polynomials p(x) = ... q(x) = ...
+  let pStr = "",
+    qStr = "";
+
+  // Try to find p(x) = ... and q(x) = ... anywhere in the text
+  // p(x) section ends at q(x) or at a sentence-ending keyword
+  const pMatch = text.match(
+    /p\s*\(\s*[a-z]\s*\)\s*=\s*([\s\S]+?)(?=\s*q\s*\(\s*[a-z]\s*\)\s*=)/i,
+  );
+  // q(x) section ends at common end-of-definition phrases or end of string
   const qMatch = text.match(
-    /q\s*\(x\)\s*=\s*([\s\S]+?)(?=\s+(?:Compute|Find|What|Output|over|degree))/i,
+    /q\s*\(\s*[a-z]\s*\)\s*=\s*([\s\S]+?)(?=\s*(?:Compute|Find|What|Output|over\s+[A-Z]|Determine|Calculate|degree|gcd\s*\()|$)/i,
   );
 
-  if (!pMatch || !qMatch) return "";
+  if (pMatch) pStr = pMatch[1];
+  if (qMatch) qStr = qMatch[1];
 
-  const pRoots = extractRoots(pMatch[1]);
-  const qRoots = extractRoots(qMatch[1]);
+  // Strategy 2: if one of them failed, try splitting by "and" or by q(x)
+  if (!pStr || !qStr) {
+    // Try splitting the whole text at q(x) =
+    const splitMatch = text.match(
+      /^([\s\S]*?)\s*q\s*\(\s*[a-z]\s*\)\s*=\s*([\s\S]+?)(?:\s*(?:Compute|Find|What|Output|over\s+[A-Z]|Determine|Calculate|degree|gcd\s*\()|$)/i,
+    );
+    if (splitMatch) {
+      if (!pStr) {
+        const pPart = splitMatch[1].match(
+          /p\s*\(\s*[a-z]\s*\)\s*=\s*([\s\S]+)/i,
+        );
+        if (pPart) pStr = pPart[1];
+      }
+      if (!qStr) qStr = splitMatch[2];
+    }
+  }
+
+  if (!pStr || !qStr) return "";
+
+  const pRoots = extractRoots(pStr);
+  const qRoots = extractRoots(qStr);
 
   if (pRoots.length === 0 || qRoots.length === 0) return "";
 
-  // Count common roots (with multiplicity — but for simple cases just intersection)
-  const qSet = new Map();
-  qRoots.forEach((r) => qSet.set(r, (qSet.get(r) || 0) + 1));
+  // Count common roots with multiplicity
+  const qMap = new Map();
+  qRoots.forEach((r) => qMap.set(r, (qMap.get(r) || 0) + 1));
   let common = 0;
-  const pCount = new Map();
-  pRoots.forEach((r) => pCount.set(r, (pCount.get(r) || 0) + 1));
-  for (const [root, count] of pCount) {
-    if (qSet.has(root)) common += Math.min(count, qSet.get(root));
+  const pMap = new Map();
+  pRoots.forEach((r) => pMap.set(r, (pMap.get(r) || 0) + 1));
+  for (const [root, count] of pMap) {
+    if (qMap.has(root)) common += Math.min(count, qMap.get(root));
   }
 
   return String(common);
@@ -611,8 +641,9 @@ async function solveWithLlm(query, assets = []) {
     "These require careful symbolic and numeric computation. Always compute step by step.",
     "",
     "--- POLYNOMIAL GCD ---",
-    "GCD of polynomials in factored form = product of common linear factors.",
-    "Degree of GCD = number of common roots.",
+    "GCD of polynomials in factored form = product of common linear factors (with multiplicity).",
+    "Degree of GCD = count of common roots counting multiplicity (min of multiplicities for each shared root).",
+    "IMPORTANT: The variable name does not matter (x, t, y, z all work the same way).",
     "Q: p(x)=(x-1)(x-2)(x-3)(x-4)(x-5)(x-6), q(x)=(x-3)(x-4)(x-5)(x-6)(x-7)(x-8). Compute degree of gcd(p,q) over Q.",
     "Reasoning: roots of p: {1,2,3,4,5,6}. roots of q: {3,4,5,6,7,8}. Common: {3,4,5,6} → 4 common factors → degree 4.",
     "answer: 4",
@@ -624,6 +655,14 @@ async function solveWithLlm(query, assets = []) {
     "Q: p(x)=(x-1)(x-3)(x-5)(x-7), q(x)=(x-2)(x-4)(x-6)(x-8). Compute degree of gcd(p,q) over Q.",
     "Reasoning: roots of p: {1,3,5,7}. roots of q: {2,4,6,8}. Common: none → degree 0.",
     "answer: 0",
+    "",
+    "Q: p(x)=(x-2)^2(x-3)(x-5), q(x)=(x-2)(x-3)^2(x-7). Compute degree of gcd(p,q) over Q.",
+    "Reasoning: roots of p (with mult): {2,2,3,5}. roots of q: {2,3,3,7}. Common: x=2 (min mult 1), x=3 (min mult 1) → degree 2.",
+    "answer: 2",
+    "",
+    "Q: p(t)=(t-1)(t-2)(t-4)(t-6), q(t)=(t-2)(t-4)(t-5)(t-6). Compute degree of gcd(p,q) over Q.",
+    "Reasoning: roots of p: {1,2,4,6}. roots of q: {2,4,5,6}. Common: {2,4,6} → degree 3.",
+    "answer: 3",
     "",
     "--- MODULAR ARITHMETIC ---",
     "Q: What is 2^10 mod 1000?",
